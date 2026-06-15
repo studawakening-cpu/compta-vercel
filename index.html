@@ -1057,7 +1057,7 @@ async function runAudit() {
   const monthKey = selectedMonthAudit.key;
   const monthFolderId = MONTH_FOLDER_IDS[monthKey];
 
-  ['auditStep1','auditStep2','auditStep3','auditRecoPanel'].forEach(id => document.getElementById(id).style.display='none');
+  ['auditStep1','auditStep2','auditRecoPanel'].forEach(id => document.getElementById(id).style.display='none');
   setThinkingAudit(true);
   setProgressAudit(5);
   logAudit(`Analyse complete de ${selectedMonthAudit.label}…`, 'pending');
@@ -1273,3 +1273,4 @@ function deselectAll() {
 </body>
 </html>
 <!-- build Mon Jun 15 11:52:36 UTC 2026 -->
+<!-- Mon Jun 15 12:46:07 UTC 2026 -->
