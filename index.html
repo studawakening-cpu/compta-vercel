@@ -1050,6 +1050,23 @@ function logAudit(msg, type='info') {
 function setProgressAudit(pct) { document.getElementById('progressAudit').style.width = pct + '%'; }
 function setThinkingAudit(v) { document.getElementById('thinkingAudit').className = 'thinking' + (v ? ' visible' : ''); }
 
+function getMonthKeyFromDate(dateStr) {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return null;
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1; // 1-12
+    const map = {
+      '2026-4':'1-AVRIL 04-26','2026-5':'2-MAI 05-26','2026-6':'3-JUIN 06-26',
+      '2026-7':'4-JUILLET 07-26','2026-8':'5-AOUT 08-26','2026-9':'6-SEPTEMBRE 09-26',
+      '2026-10':'7-OCTOBRE 10-26','2026-11':'8-NOVEMBRE 11-26','2026-12':'9-DECEMBRE 12-26',
+      '2027-1':'10-JANVIER 01-27','2027-2':'11-FEVRIER 02-27','2027-3':'12-MARS 03-27'
+    };
+    return map[`${y}-${m}`] || null;
+  } catch(e) { return null; }
+}
+
 async function runAudit() {
   if (!googleToken) { logAudit('Connecte ton compte Google', 'error'); return; }
   if (!localStorage.getItem('sa_claude_key')) { logAudit('Renseigne ta cle API Claude', 'error'); return; }
@@ -1174,12 +1191,20 @@ async function runAudit() {
     missing.drive.forEach((m, i) => {
       const type = m.doc.type_zone || 'prestataires';
       const dest = `${selectedMonthAudit.label} > ${SUBFOLDER_MAP[type]||''}${m.doc.fournisseur ? ' > '+m.doc.fournisseur.toUpperCase() : ''}`;
-      actions.push({ id: 'drive_'+i, kind: 'drive', label: `📁 Ranger "${m.filename}"`, dest, montant: '', doc: m.doc, filename: m.filename });
+      // Determine real target month from doc date
+      const docMonthKey = getMonthKeyFromDate(m.doc.date) || monthKey;
+      const docMonthLabel = MONTHS.find(mo => mo.key === docMonthKey)?.label || selectedMonthAudit.label;
+      const destWithDate = `${docMonthLabel} > ${SUBFOLDER_MAP[m.doc.type_zone||'prestataires']||''}${m.doc.fournisseur ? ' > '+m.doc.fournisseur.toUpperCase() : ''}`;
+      const dateLabel = m.doc.date ? ` (facture du ${m.doc.date})` : '';
+      actions.push({ id: 'drive_'+i, kind: 'drive', label: `📁 Ranger "${m.filename}"${dateLabel}`, dest: destWithDate, montant: '', doc: m.doc, filename: m.filename, targetMonthKey: docMonthKey });
     });
     missing.excel.forEach((m, i) => {
-      const col = MONTH_COL[monthKey];
+      const docMonthKey = getMonthKeyFromDate(m.doc.date) || monthKey;
+      const col = MONTH_COL[docMonthKey] || MONTH_COL[monthKey];
+      const docMonthLabel = MONTHS.find(mo => mo.key === docMonthKey)?.label || selectedMonthAudit.label;
       const sheet = (m.doc.type_zone==='tickets') ? 'DEPENSESCB' : (m.doc.type_zone==='clients') ? 'RECETTES' : 'DEPENSES';
-      actions.push({ id: 'excel_'+i, kind: 'excel', label: `📊 Saisir "${m.doc.libelle||m.filename}"`, dest: `${sheet} col ${col}`, montant: (m.doc.montant_ht||0)+'€ HT', doc: m.doc, filename: m.filename });
+      const dateLabel = m.doc.date ? ` (${m.doc.date})` : '';
+      actions.push({ id: 'excel_'+i, kind: 'excel', label: `📊 Saisir "${m.doc.libelle||m.filename}"${dateLabel}`, dest: `${sheet} ${docMonthLabel} col ${col}`, montant: (m.doc.montant_ht||0)+'€ HT', doc: m.doc, filename: m.filename, targetMonthKey: docMonthKey });
     });
 
     window._auditActions = actions;
@@ -1237,12 +1262,14 @@ async function completeAudit() {
         const file = new File([byteArr], a.filename, { type: a.doc._mimeType || 'application/pdf' });
         const type = a.doc.type_zone || 'prestataires';
         const provider = type === 'intermittence' ? (a.doc.sous_dossier_drive || 'RC2B') : (a.doc.fournisseur || '');
-        await uploadToDriveIntelligent(file, type, monthKey, provider);
+        const targetMK = a.targetMonthKey || monthKey;
+        await uploadToDriveIntelligent(file, type, targetMK, provider);
         logAudit(`✅ Drive: "${a.filename}" range`, 'success');
       }
       if (a.kind === 'excel') {
         const type = a.doc.type_zone || 'prestataires';
-        await writeToExcel(a.doc, type, monthKey);
+        const targetMK = a.targetMonthKey || monthKey;
+        await writeToExcel(a.doc, type, targetMK);
         logAudit(`✅ Excel: "${a.doc.libelle}" saisi — ${a.doc.montant_ht}€ HT`, 'success');
       }
       if (row) row.style.display = 'none';
