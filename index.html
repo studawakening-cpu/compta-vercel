@@ -143,6 +143,8 @@
 <div class="tabs-nav">
   <button class="tab-btn active" onclick="switchTab('depot',this)">📥 Dépôt documents</button>
   <button class="tab-btn" onclick="switchTab('nf',this)">🧾 Note de Frais</button>
+  <button class="tab-btn" onclick="switchTab('gmail',this)">📧 Scanner Gmail</button>
+  <button class="tab-btn" onclick="switchTab('audit',this)">🔍 Vérifier Drive & Excel</button>
 </div>
 
 <!-- TAB DEPOT -->
@@ -276,6 +278,68 @@
     <div class="log-header"><span class="log-title">Journal NF</span><button class="btn-clear" onclick="clearLogNF()">Effacer</button></div>
     <div class="log-body" id="logBodyNF"><div class="log-empty">En attente de tickets…</div></div>
     <div class="thinking" id="thinkingNF"><div class="thinking-dots"><span></span><span></span><span></span></div><span id="thinkingNFText">Extraction en cours…</span></div>
+  </div>
+</main>
+</div>
+
+<!-- TAB GMAIL -->
+<div class="tab-panel" id="tab-gmail">
+<main>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Scanner les 30 derniers jours</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Je cherche dans tes mails les factures, relevés, attestations et documents comptables avec pièces jointes, puis je les range automatiquement dans le Drive et l'Excel.</div>
+    <div style="display:flex;gap:12px">
+      <button class="btn-save" style="flex:1" onclick="scanGmail()">📧 Scanner Gmail maintenant</button>
+    </div>
+  </div>
+
+  <div class="log-section">
+    <div class="progress-bar"><div class="progress-fill" id="progressGmail"></div></div>
+    <div class="log-header">
+      <span class="log-title">Résultats du scan</span>
+      <button class="btn-clear" onclick="clearLogGmail()">Effacer</button>
+    </div>
+    <div class="log-body" id="logGmail"><div class="log-empty">Lance un scan pour voir les documents trouvés…</div></div>
+    <div class="thinking" id="thinkingGmail"><div class="thinking-dots"><span></span><span></span><span></span></div><span>Scan en cours…</span></div>
+  </div>
+</main>
+</div>
+
+<!-- TAB AUDIT -->
+<div class="tab-panel" id="tab-audit">
+<main>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Vérification Drive & Excel</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Je compare les documents présents dans ton Drive avec les entrées de ton Excel pour détecter les oublis, les doublons et les anomalies.</div>
+    <div class="month-row" style="margin-bottom:16px">
+      <span class="month-label">Mois à vérifier</span>
+      <div class="month-pills" id="monthPillsAudit"></div>
+    </div>
+    <button class="btn-save" style="width:100%" onclick="runAudit()">🔍 Lancer la vérification</button>
+  </div>
+
+  <div id="auditResults" style="display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">📁 Documents Drive</div>
+        <div id="auditDrive" style="font-size:12px;line-height:1.8;color:var(--text)"></div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">📊 Entrées Excel</div>
+        <div id="auditExcel" style="font-size:12px;line-height:1.8;color:var(--text)"></div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid rgba(232,255,71,0.2);border-radius:16px;padding:20px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">🤖 Analyse & Recommandations</div>
+      <div id="auditRecos" style="font-size:12px;line-height:1.8;color:var(--text);white-space:pre-wrap"></div>
+    </div>
+  </div>
+
+  <div class="log-section" style="margin-top:16px">
+    <div class="progress-bar"><div class="progress-fill" id="progressAudit"></div></div>
+    <div class="log-header"><span class="log-title">Journal de vérification</span></div>
+    <div class="log-body" id="logAudit"><div class="log-empty">Lance une vérification…</div></div>
+    <div class="thinking" id="thinkingAudit"><div class="thinking-dots"><span></span><span></span><span></span></div><span>Analyse en cours…</span></div>
   </div>
 </main>
 </div>
@@ -793,6 +857,252 @@ async function analyzeAll(){
   setThinking(false);setProgress(100);
   log('✅ Tout terminé — Drive rangé + Excel rempli','success');
   setTimeout(()=>setProgress(0),2000);
+}
+
+// ═══════════════════════════════════════
+// GMAIL SCANNER
+// ═══════════════════════════════════════
+let selectedMonthAudit = MONTHS[1];
+
+function logGmail(msg, type='info') {
+  const body = document.getElementById('logGmail');
+  body.querySelector('.log-empty')?.remove();
+  const time = new Date().toTimeString().slice(0,8);
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
+  body.appendChild(entry);
+  body.scrollTop = body.scrollHeight;
+}
+function clearLogGmail() { document.getElementById('logGmail').innerHTML = '<div class="log-empty">Lance un scan pour voir les documents trouvés…</div>'; }
+function setProgressGmail(pct) { document.getElementById('progressGmail').style.width = pct + '%'; }
+function setThinkingGmail(v) { document.getElementById('thinkingGmail').className = 'thinking' + (v ? ' visible' : ''); }
+
+async function gmailAction(action, params = {}) {
+  if (!googleToken) throw new Error('Google non connecté');
+  const res = await fetch('/api/gmail', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleToken}` },
+    body: JSON.stringify({ action, ...params })
+  });
+  if (res.status === 401) { await refreshGoogleToken(); return gmailAction(action, params); }
+  return res.json();
+}
+
+function getHeader(headers, name) {
+  return headers?.find(h => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+}
+
+function base64UrlDecode(str) {
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
+  return padded;
+}
+
+async function scanGmail() {
+  if (!googleToken) { logGmail('⚠ Connecte ton compte Google (bouton en haut)', 'error'); return; }
+  if (!localStorage.getItem('sa_claude_key')) { logGmail('⚠ Renseigne ta cle API Claude', 'error'); return; }
+
+  clearLogGmail();
+  setThinkingGmail(true);
+  setProgressGmail(5);
+  logGmail('Recherche des mails avec documents comptables…', 'pending');
+
+  try {
+    const listData = await gmailAction('list');
+    const messages = listData.messages || [];
+    if (!messages.length) { logGmail('Aucun mail comptable trouve dans les 30 derniers jours', 'info'); setThinkingGmail(false); return; }
+
+    logGmail(`${messages.length} mail(s) trouve(s) — analyse en cours…`, 'success');
+    setProgressGmail(20);
+
+    let processed = 0;
+    for (const msg of messages.slice(0, 10)) {
+      const fullMsg = await gmailAction('get', { messageId: msg.id });
+      const subject = getHeader(fullMsg.payload?.headers, 'subject');
+      const from = getHeader(fullMsg.payload?.headers, 'from');
+      const date = getHeader(fullMsg.payload?.headers, 'date');
+
+      // Find attachments
+      const parts = fullMsg.payload?.parts || [];
+      const attachments = parts.filter(p => p.filename && p.filename.length > 0 && 
+        (p.mimeType === 'application/pdf' || p.mimeType?.startsWith('image/')));
+
+      if (!attachments.length) { processed++; continue; }
+
+      logGmail(`📧 "${subject}" de ${from.split('<')[0].trim()} — ${attachments.length} PJ`, 'info');
+
+      for (const att of attachments) {
+        try {
+          const attData = await gmailAction('attachment', { messageId: msg.id, attachmentId: att.body.attachmentId });
+          const b64 = base64UrlDecode(attData.data || '');
+
+          // Analyze with Claude
+          const claudeContent = [
+            { type: 'text', text: `Analyse cette piece jointe email. Sujet: "${subject}". Expediteur: "${from}". Date: "${date}". Retourne UNIQUEMENT un JSON valide sans markdown: {type_document, date (YYYY-MM-DD), libelle, fournisseur (max 30 chars), montant_ttc, montant_ht, tva, categorie, type_zone (tickets|prestataires|clients|nf|intermittence), sous_dossier_drive (pour intermittence: RC2B ou STUD), categorie_excel}` },
+            { type: 'document', source: { type: 'base64', media_type: att.mimeType || 'application/pdf', data: b64 } }
+          ];
+
+          const raw = await callClaude([{ role: 'user', content: claudeContent }], 'Tu es comptable de STUDIO AWAKENING. Analyse ce document et retourne uniquement du JSON valide.');
+          const clean = raw.replace(/```json|```/g, '').trim();
+          const doc = JSON.parse(clean);
+
+          // Detect month from document date
+          let targetMonth = selectedMonth;
+          if (doc.date) {
+            const docDate = new Date(doc.date);
+            const monthMap = { 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7, 11: 8, 0: 9, 1: 10, 2: 11 };
+            const idx = monthMap[docDate.getMonth()];
+            if (idx !== undefined) targetMonth = MONTHS[idx];
+          }
+
+          const type = doc.type_zone || 'prestataires';
+          const providerName = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
+
+          // Create a File-like object for upload
+          const byteChars = atob(b64);
+          const byteArr = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+          const file = new File([byteArr], att.filename, { type: att.mimeType || 'application/pdf' });
+
+          // Upload to Drive
+          await uploadToDriveIntelligent(file, type, targetMonth.key, providerName);
+          logGmail(`✓ "${att.filename}" range dans Drive → ${targetMonth.label} > ${SUBFOLDER_MAP[type]}`, 'success');
+
+          // Write to Excel
+          if (doc.montant_ht || doc.montant_ttc) {
+            await writeToExcel(doc, type, targetMonth.key);
+          }
+
+        } catch (err) {
+          logGmail(`⚠ Erreur PJ "${att.filename}": ${err.message}`, 'error');
+        }
+      }
+      processed++;
+      setProgressGmail(20 + Math.round((processed / messages.length) * 70));
+    }
+
+    setProgressGmail(100);
+    setThinkingGmail(false);
+    logGmail('✅ Scan termine — Drive et Excel mis a jour', 'success');
+    setTimeout(() => setProgressGmail(0), 2000);
+
+  } catch (err) {
+    setThinkingGmail(false);
+    logGmail(`✗ Erreur scan: ${err.message}`, 'error');
+  }
+}
+
+// ═══════════════════════════════════════
+// AUDIT DRIVE & EXCEL
+// ═══════════════════════════════════════
+buildMonthPills('monthPillsAudit', selectedMonthAudit, m => selectedMonthAudit = m);
+
+function logAudit(msg, type='info') {
+  const body = document.getElementById('logAudit');
+  body.querySelector('.log-empty')?.remove();
+  const time = new Date().toTimeString().slice(0,8);
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
+  body.appendChild(entry);
+  body.scrollTop = body.scrollHeight;
+}
+function setProgressAudit(pct) { document.getElementById('progressAudit').style.width = pct + '%'; }
+function setThinkingAudit(v) { document.getElementById('thinkingAudit').className = 'thinking' + (v ? ' visible' : ''); }
+
+async function runAudit() {
+  if (!googleToken) { logAudit('⚠ Connecte ton compte Google', 'error'); return; }
+  if (!localStorage.getItem('sa_claude_key')) { logAudit('⚠ Renseigne ta cle API Claude', 'error'); return; }
+
+  const monthKey = selectedMonthAudit.key;
+  const monthFolderId = MONTH_FOLDER_IDS[monthKey];
+
+  document.getElementById('auditResults').style.display = 'none';
+  setThinkingAudit(true);
+  setProgressAudit(10);
+  logAudit(`Verification de ${selectedMonthAudit.label}…`, 'pending');
+
+  try {
+    // 1. List all Drive files in this month
+    logAudit('Lecture des dossiers Drive…', 'pending');
+    const driveFiles = {};
+    for (const [subfolder] of Object.entries(SUBFOLDER_MAP)) {
+      try {
+        const subId = await getSubfolderId(monthKey, SUBFOLDER_MAP[subfolder]);
+        const filesData = await driveAction('listFolders', { folderId: subId });
+        driveFiles[SUBFOLDER_MAP[subfolder]] = (filesData.files || []).map(f => f.name);
+      } catch(e) { driveFiles[SUBFOLDER_MAP[subfolder]] = []; }
+    }
+    setProgressAudit(40);
+
+    // 2. Read Excel data for this month
+    logAudit('Lecture de l Excel…', 'pending');
+    const col = MONTH_COL[monthKey];
+    const excelData = await driveAction('sheetsRead', {
+      spreadsheetId: EXCEL_FILE_ID,
+      range: `DEPENSES!C:${col}`
+    });
+    const excelRows = (excelData.values || []).filter(r => r[0] && r[r.length - 1] && parseFloat((r[r.length-1]||'0').replace(/[€\s,]/g,'')) > 0);
+    setProgressAudit(60);
+
+    // 3. Read DEPENSESCB
+    const cbData = await driveAction('sheetsRead', {
+      spreadsheetId: EXCEL_FILE_ID,
+      range: `DEPENSESCB!A:${col}`
+    });
+    const cbRows = (cbData.values || []).filter(r => r[0] && r[r.length - 1] && parseFloat((r[r.length-1]||'0').replace(/[€\s,]/g,'')) > 0);
+    setProgressAudit(75);
+
+    // 4. Ask Claude to analyze and recommend
+    logAudit('Analyse par Claude…', 'pending');
+    const summary = `Mois: ${selectedMonthAudit.label}
+    
+DRIVE - Fichiers par dossier:
+${Object.entries(driveFiles).map(([k,v]) => `${k}: ${v.length} fichier(s) ${v.length ? '(' + v.slice(0,3).join(', ') + ')' : ''}`).join('
+')}
+
+EXCEL DEPENSES - Lignes avec montant en ${col}:
+${excelRows.slice(0,20).map(r => `- ${r[0]}: ${r[r.length-1]}`).join('
+')}
+
+EXCEL DEPENSESCB - Tickets CB:
+${cbRows.slice(0,10).map(r => `- ${r[0]}: ${r[r.length-1]}`).join('
+')}`;
+
+    const analysis = await callClaude([{
+      role: 'user',
+      content: `Tu es comptable de STUDIO AWAKENING. Analyse cet audit de la comptabilite du mois et donne des recommandations claires et actionnables en francais. Identifie: 1) Ce qui semble manquer dans le Drive ou l'Excel 2) Des anomalies ou incoherences 3) Des conseils pour ameliorer le rangement. Sois precis et pratique.
+
+${summary}`
+    }], 'Tu es un expert-comptable. Analyse l'etat de la comptabilite et fournis des recommandations concretes.');
+
+    setProgressAudit(90);
+
+    // 5. Display results
+    const driveHtml = Object.entries(driveFiles)
+      .map(([k,v]) => `<div style="margin-bottom:8px"><span style="color:var(--muted);font-size:10px">${k}</span><br>${v.length ? v.map(f => `<span style="color:var(--success)">✓ ${f}</span>`).join('<br>') : '<span style="color:var(--muted2)">Vide</span>'}</div>`)
+      .join('');
+
+    const excelHtml = [
+      ...excelRows.slice(0,10).map(r => `<span style="color:var(--success)">✓ ${r[0]}: ${r[r.length-1]}</span>`),
+      ...cbRows.slice(0,5).map(r => `<span style="color:var(--accent)">CB ${r[0]}: ${r[r.length-1]}</span>`)
+    ].join('<br>') || '<span style="color:var(--muted2)">Aucune entree ce mois</span>';
+
+    document.getElementById('auditDrive').innerHTML = driveHtml;
+    document.getElementById('auditExcel').innerHTML = excelHtml;
+    document.getElementById('auditRecos').textContent = analysis;
+    document.getElementById('auditResults').style.display = 'block';
+
+    setProgressAudit(100);
+    setThinkingAudit(false);
+    logAudit('✅ Verification terminee', 'success');
+    setTimeout(() => setProgressAudit(0), 2000);
+
+  } catch (err) {
+    setThinkingAudit(false);
+    logAudit(`✗ Erreur: ${err.message}`, 'error');
+  }
 }
 </script>
 </body>
