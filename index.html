@@ -193,6 +193,18 @@
   <input type="file" id="file-nf" multiple accept=".pdf,image/*" onchange="addFiles('nf',this.files)">
   <input type="file" id="file-intermittence" multiple accept=".pdf,image/*" onchange="addFiles('intermittence',this.files)">
 
+  <!-- Liste des fichiers ajoutés -->
+  <div id="files-list-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:24px">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted)">Fichiers à analyser</span>
+      <button class="btn-clear" onclick="clearAllFiles()">Tout effacer</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 140px 100px 32px;gap:12px;padding:8px 20px;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">
+      <span>Fichier</span><span>Catégorie</span><span>Mois</span><span></span>
+    </div>
+    <div id="files-list-body"></div>
+  </div>
+
   <div style="text-align:center;margin-bottom:24px">
     <button class="btn-save" style="padding:14px 48px;font-size:14px;letter-spacing:0.1em" onclick="analyzeAll()">▶ Analyser &amp; Ranger</button>
   </div>
@@ -283,7 +295,47 @@ buildMonthPills('monthPillsNF',selectedMonthNF,m=>selectedMonthNF=m);
 function saveKey(){apiKey=document.getElementById('apiKey').value.trim();localStorage.setItem('sa_claude_key',apiKey);log('Clé API Claude enregistrée ✓','success');}
 
 function triggerUpload(type){document.getElementById('file-'+type).click();}
-function addFiles(type,fileList){Array.from(fileList).forEach(f=>{if(!files[type].find(x=>x.name===f.name))files[type].push(f);});const count=files[type].length;document.getElementById('count-'+type).textContent=count+' fichier'+(count>1?'s':'');log(fileList.length+' fichier(s) ajouté(s) → '+labelFor(type),'info');}
+function addFiles(type,fileList){
+  Array.from(fileList).forEach(f=>{
+    if(!files[type].find(x=>x.name===f.name))
+      files[type].push({file:f,name:f.name,type,month:selectedMonth.label,monthKey:selectedMonth.key});
+  });
+  const count=files[type].length;
+  document.getElementById('count-'+type).textContent=count+' fichier'+(count>1?'s':'');
+  log(fileList.length+' fichier(s) ajouté(s) → '+labelFor(type),'info');
+  renderFilesList();
+}
+
+function renderFilesList(){
+  const allFiles=Object.values(files).flat();
+  const panel=document.getElementById('files-list-panel');
+  const body=document.getElementById('files-list-body');
+  if(!allFiles.length){panel.style.display='none';return;}
+  panel.style.display='block';
+  body.innerHTML='';
+  allFiles.forEach((f,i)=>{
+    const colors={tickets:'var(--accent)',prestataires:'var(--accent2)',clients:'var(--success)',nf:'var(--warning)',intermittence:'#a78bfa'};
+    const row=document.createElement('div');
+    row.style.cssText='display:grid;grid-template-columns:1fr 140px 100px 32px;gap:12px;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,0.03);align-items:center;font-size:11px;animation:fadeIn 0.2s ease';
+    row.innerHTML=`<span style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${f.name}">📄 ${f.name}</span><span style="color:${colors[f.type]};font-size:10px">${labelFor(f.type)}</span><span style="color:var(--muted);font-size:10px">${f.month}</span><button class="btn-del" onclick="removeFile('${f.type}','${f.name}')" style="background:none;border:none;color:var(--muted2);cursor:pointer;font-size:16px;line-height:1" title="Retirer">×</button>`;
+    body.appendChild(row);
+  });
+}
+
+function removeFile(type,name){
+  files[type]=files[type].filter(f=>f.name!==name);
+  const count=files[type].length;
+  document.getElementById('count-'+type).textContent=count+' fichier'+(count>1?'s':'');
+  renderFilesList();
+  log('Fichier retiré : '+name,'info');
+}
+
+function clearAllFiles(){
+  Object.keys(files).forEach(k=>files[k]=[]);
+  ['tickets','prestataires','clients','nf','intermittence'].forEach(t=>document.getElementById('count-'+t).textContent='0 fichier');
+  renderFilesList();
+  log('Tous les fichiers effacés','info');
+}
 function labelFor(type){return{tickets:'Tickets CB',prestataires:'Factures Prestataires',clients:'Factures Clients',nf:'Notes de Frais',intermittence:'Intermittence'}[type];}
 function handleDragOver(e,type){e.preventDefault();document.getElementById('zone-'+type)?.classList.add('drag-over');}
 function handleDragLeave(type){document.getElementById('zone-'+type)?.classList.remove('drag-over');}
@@ -325,7 +377,7 @@ async function analyzeAll(){
     setThinking(true,`Analyse ${labelFor(type)}…`);
     try{
       const content=[];
-      for(const file of files[type]){
+      for(const f of files[type]){const file=f.file||f;
         content.push({type:'text',text:`--- ${file.name} (${labelFor(type)}) ---`});
         const b64=await toBase64(file);
         if(file.type==='application/pdf'){content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}});}
