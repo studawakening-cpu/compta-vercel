@@ -583,8 +583,111 @@ async function getSubfolderId(monthKey, subfolder) {
   if (!monthFolderId) throw new Error(`Dossier mois introuvable: ${monthKey}`);
   const data = await driveAction('listFolders', {folderId: monthFolderId});
   const folder = data.files?.find(f => f.name === subfolder);
-  if (!folder) throw new Error(`Sous-dossier "${subfolder}" introuvable dans ${monthKey}`);
-  return folder.id;
+  if (folder) return folder.id;
+  // Crée le sous-dossier s'il n'existe pas
+  log(`📁 Création du sous-dossier "${subfolder}"...`, 'pending');
+  const created = await driveAction('createFolder', {folderId: monthFolderId, fileName: subfolder});
+  if (!created.id) throw new Error(`Impossible de créer le dossier "${subfolder}"`);
+  log(`✓ Dossier "${subfolder}" créé`, 'success');
+  return created.id;
+}
+
+async function getOrCreateSubfolder(parentId, name) {
+  const data = await driveAction('listFolders', {folderId: parentId});
+  const existing = data.files?.find(f => f.name === name);
+  if (existing) return existing.id;
+  log(`📁 Création du sous-dossier "${name}"...`, 'pending');
+  const created = await driveAction('createFolder', {folderId: parentId, fileName: name});
+  return created.id;
+}
+
+async function uploadToDriveIntelligent(file, type, monthKey, providerName) {
+  const subfolder = SUBFOLDER_MAP[type];
+  const monthFolderId = MONTH_FOLDER_IDS[monthKey];
+  if (!monthFolderId) throw new Error(`Dossier mois introuvable: ${monthKey}`);
+  
+  // Get or create main subfolder (ex: FACTURES PRESTATAIRES)
+  const subFolderId = await getSubfolderId(monthKey, subfolder);
+  
+  // For prestataires and clients, create provider subfolder if needed
+  let targetFolderId = subFolderId;
+  if ((type === 'prestataires' || type === 'clients') && providerName) {
+    targetFolderId = await getOrCreateSubfolder(subFolderId, providerName.toUpperCase());
+  }
+  
+  const b64 = await toBase64(file);
+  return driveAction('upload', {
+    folderId: targetFolderId,
+    fileName: file.name,
+    fileContent: b64,
+    mimeType: file.type || 'application/pdf'
+  });
+}
+
+// Month column mapping for new fiscal year 2026-27
+const MONTH_COL = {
+  '1-AVRIL 04-26': 'D', '2-MAI 05-26': 'E', '3-JUIN 06-26': 'F',
+  '4-JUILLET 07-26': 'G', '5-AOUT 08-26': 'H', '6-SEPTEMBRE 09-26': 'I',
+  '7-OCTOBRE 10-26': 'J', '8-NOVEMBRE 11-26': 'K', '9-DECEMBRE 12-26': 'L',
+  '10-JANVIER 01-27': 'M', '11-FEVRIER 02-27': 'N', '12-MARS 03-27': 'O'
+};
+
+async function writeToExcel(doc, type, monthKey) {
+  const col = MONTH_COL[monthKey];
+  if (!col) throw new Error('Mois non reconnu');
+  
+  const sheetName = type === 'tickets' ? 'DEPENSESCB' : type === 'clients' ? 'RECETTES' : 'DEPENSES';
+  
+  if (type === 'tickets') {
+    // Append new row to DEPENSESCB
+    await driveAction('sheetsAppend', {
+      spreadsheetId: EXCEL_FILE_ID,
+      range: `DEPENSESCB!A:O`,
+      values: [[doc.libelle || '', doc.montant_ttc || 0, doc.montant_ht || 0, doc.tva || 0, 
+                ...['D','E','F','G','H','I','J','K','L','M','N','O'].map(c => c === col ? (doc.montant_ht || 0) : '')]]
+    });
+    return;
+  }
+
+  // For DEPENSES: find existing row by name and update the right column
+  const sheetData = await driveAction('sheetsRead', {
+    spreadsheetId: EXCEL_FILE_ID,
+    range: `DEPENSES!C:O`
+  });
+  
+  const rows = sheetData.values || [];
+  const libelle = (doc.libelle || '').toLowerCase().trim();
+  
+  // Find matching row
+  let rowIndex = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const cellVal = (rows[i][0] || '').toLowerCase().trim();
+    if (cellVal && libelle.includes(cellVal.substring(0, 6)) || cellVal.includes(libelle.substring(0, 6))) {
+      rowIndex = i + 1; // 1-indexed
+      break;
+    }
+  }
+
+  if (rowIndex > 0) {
+    // Update existing row
+    const colOffset = ['D','E','F','G','H','I','J','K','L','M','N','O'].indexOf(col);
+    const targetRange = `DEPENSES!${col}${rowIndex}`;
+    await driveAction('sheetsUpdate', {
+      spreadsheetId: EXCEL_FILE_ID,
+      updateRange: targetRange,
+      values: [[doc.montant_ht || 0]]
+    });
+    log(`✓ Excel: ligne "${rows[rowIndex-1][0]}" mise à jour — col ${col}: ${doc.montant_ht}€`, 'success');
+  } else {
+    // Append new row
+    await driveAction('sheetsAppend', {
+      spreadsheetId: EXCEL_FILE_ID,
+      range: `DEPENSES!C:O`,
+      values: [[doc.libelle || '', doc.montant_ttc || '', doc.montant_ht || '', 
+                ...['D','E','F','G','H','I','J','K','L','M','N','O'].map(c => c === col ? (doc.montant_ht || 0) : '')]]
+    });
+    log(`✓ Excel: nouvelle ligne "${doc.libelle}" ajoutée — col ${col}: ${doc.montant_ht}€`, 'success');
+  }
 }
 
 async function uploadToDrive(file, type, monthKey) {
@@ -631,34 +734,30 @@ async function analyzeAll(){
         if(file.type==='application/pdf'){content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}});}
         else{content.push({type:'image',source:{type:'base64',media_type:file.type,data:b64}});}
       }
-      content.push({type:'text',text:`Analyse ces documents et retourne UNIQUEMENT un JSON valide (sans markdown) avec un tableau "documents" où chaque élément a: nom_fichier, type_document, date (YYYY-MM-DD), libelle, montant_ttc (nombre), montant_ht (nombre), tva (nombre), categorie, notes. Pour tickets CB: un document par ticket avec type_document="ticket_cb".`});
+      content.push({type:'text',text:`Analyse ces documents et retourne UNIQUEMENT un JSON valide (sans markdown) avec un tableau "documents" où chaque élément a: nom_fichier, type_document, date (YYYY-MM-DD), libelle, fournisseur (nom court du fournisseur/client, max 30 chars), montant_ttc (nombre), montant_ht (nombre), tva (nombre), categorie, notes. Pour tickets CB: un document par ticket avec type_document="ticket_cb".`});
 
       const system=`Tu es l'assistant comptable de STUDIO AWAKENING (SAS, SIREN 927 848 804, Lyon). Mois: ${selectedMonth.label}. Retourne uniquement du JSON valide sans markdown.`;
       const raw=await callClaude([{role:'user',content}],system);
       const clean=raw.replace(/\`\`\`json|\`\`\`/g,'').trim();
       const data=JSON.parse(clean);
 
-      // 2. Upload each file to Drive
+      // 2. Upload each file to Drive intelligently (with subfolder creation)
       log(`📁 Rangement dans Drive…`,'pending');
+      const providerName = data.documents?.[0]?.fournisseur || data.documents?.[0]?.libelle || '';
       for(const f of files[type]){
         const file=f.file||f;
         try{
-          await uploadToDrive(file, type, selectedMonth.key);
-          log(`✓ "${file.name}" rangé dans ${selectedMonth.key} > ${SUBFOLDER_MAP[type]}`,'success');
+          await uploadToDriveIntelligent(file, type, selectedMonth.key, providerName);
+          log(`✓ "${file.name}" rangé dans Drive`,'success');
         }catch(err){log(`⚠ Drive: ${err.message}`,'error');}
       }
 
-      // 3. Append to Sheets (DEPENSESCB for tickets, else DEPENSES)
+      // 3. Write to Excel intelligently
       if(data.documents && data.documents.length){
         log(`📊 Saisie dans l'Excel…`,'pending');
         for(const doc of data.documents){
           try{
-            let sheetName='DEPENSES';
-            let row=[doc.date||'', doc.libelle||'', doc.montant_ttc||0, doc.montant_ht||0, doc.tva||0, doc.categorie||'', selectedMonth.label, doc.notes||''];
-            if(type==='tickets'){sheetName='DEPENSESCB'; row=[doc.date||'', doc.libelle||'', doc.categorie||'', doc.montant_ttc||0, doc.montant_ht||0, doc.tva||0, selectedMonth.label];}
-            if(type==='clients'){sheetName='RECETTES'; row=[doc.date||'', doc.libelle||'', doc.montant_ht||0, doc.tva||0, doc.montant_ttc||0, selectedMonth.label];}
-            await appendToSheets(sheetName, [row]);
-            log(`✓ Saisie Excel: ${doc.libelle} — ${doc.montant_ttc}€`,'success');
+            await writeToExcel(doc, type, selectedMonth.key);
           }catch(err){log(`⚠ Excel: ${err.message}`,'error');}
         }
       }

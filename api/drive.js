@@ -38,6 +38,33 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(await sheetsRes.json());
     }
 
+    if (action === 'createFolder') {
+      const meta = { name: fileName, mimeType: 'application/vnd.google-apps.folder', parents: [folderId] };
+      const r = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(meta)
+      });
+      return res.status(200).json(await r.json());
+    }
+
+    if (action === 'sheetsRead') {
+      const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      return res.status(200).json(await r.json());
+    }
+
+    if (action === 'sheetsUpdate') {
+      const { updateRange, values: updateValues } = req.body;
+      const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=USER_ENTERED`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: updateValues })
+      });
+      return res.status(200).json(await r.json());
+    }
+
     return res.status(400).json({ error: 'Action inconnue' });
   } catch (err) {
     return res.status(500).json({ error: err.message });
