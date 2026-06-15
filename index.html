@@ -1012,19 +1012,57 @@ async function scanGmail() {
           const dest = `${targetMonthLabel} > ${SUBFOLDER_MAP[type]||''}${provider ? ' > '+provider.toUpperCase() : ''}`;
           const dateLabel = doc.date ? ` (${doc.date})` : '';
 
+          // Check if file already exists in Drive
+          const type2 = doc.type_zone || 'prestataires';
+          let alreadyInDrive = false;
+          let wrongLocation = false;
+          let wrongLocationPath = '';
+          try {
+            // Check correct folder
+            const correctSubId = await getSubfolderId(targetMonthKey, SUBFOLDER_MAP[type2]||'FACTURES PRESTATAIRES');
+            const correctFiles = await driveAction('listFolders', { folderId: correctSubId });
+            const correctNames = (correctFiles.files||[]).map(f => f.name.toLowerCase());
+            if (correctNames.includes(att.filename.toLowerCase())) {
+              alreadyInDrive = true;
+              logGmail(`⏭ "${att.filename}" deja present dans Drive (bon endroit) — ignore`, 'info');
+            }
+          } catch(e) {}
+
+          if (alreadyInDrive) continue;
+
+          // Check if file exists elsewhere in Drive (wrong location)
+          if (!alreadyInDrive) {
+            try {
+              for (const [subKey, subName] of Object.entries(SUBFOLDER_MAP)) {
+                if (subKey === (doc.type_zone||'prestataires')) continue;
+                const subId = await getSubfolderId(targetMonthKey, subName);
+                const subFiles = await driveAction('listFolders', { folderId: subId });
+                const found = (subFiles.files||[]).find(f => f.name.toLowerCase() === att.filename.toLowerCase());
+                if (found) { wrongLocation = true; wrongLocationPath = subName; break; }
+              }
+            } catch(e) {}
+          }
+
+          const actionKind = wrongLocation ? 'move' : 'both';
+          const actionLabel = wrongLocation
+            ? `🔀 Déplacer "${att.filename}" (trouvé dans ${wrongLocationPath})${dateLabel}`
+            : `📄 "${att.filename}"${dateLabel}`;
+
           gmailActions.push({
             id: 'gmail_' + gmailActions.length,
-            kind: 'both',
-            label: `📄 "${att.filename}"${dateLabel}`,
+            kind: actionKind,
+            label: actionLabel,
             sublabel: `${doc.fournisseur||''} — ${doc.type_document||''}`,
             dest,
             montant: doc.montant_ht ? doc.montant_ht + '€ HT' : '—',
             doc,
             filename: att.filename,
-            targetMonthKey
+            targetMonthKey,
+            wrongLocation,
+            wrongLocationPath
           });
 
-          logGmail(`✓ "${att.filename}" analysé → ${targetMonthLabel}`, 'success');
+          logGmail(`✓ "${att.filename}" analysé → ${targetMonthLabel}${wrongLocation?' (mal rangé, déplacement proposé)':''}`, wrongLocation?'pending':'success');
         } catch(e) {
           logGmail(`⚠ Erreur "${att.filename}": ${e.message}`, 'error');
         }
@@ -1157,14 +1195,18 @@ async function runAudit() {
     logAudit(`${messages.length} mail(s) avec PJ comptable trouve(s)`, 'success');
     setProgressAudit(20);
 
-    // STEP 2: Get Drive file list
+    // STEP 2: Get Drive file list with location info
     logAudit('Lecture du Drive…', 'pending');
     const driveFileNames = new Set();
-    for (const subfolder of Object.values(SUBFOLDER_MAP)) {
+    const driveFileLocations = {}; // filename -> {subfolder, id}
+    for (const [typeKey, subfolder] of Object.entries(SUBFOLDER_MAP)) {
       try {
         const subId = await getSubfolderId(monthKey, subfolder);
         const data = await driveAction('listFolders', { folderId: subId });
-        (data.files || []).forEach(f => driveFileNames.add(f.name.toLowerCase()));
+        (data.files || []).forEach(f => {
+          driveFileNames.add(f.name.toLowerCase());
+          driveFileLocations[f.name.toLowerCase()] = { subfolder, typeKey, id: f.id };
+        });
       } catch(e) {}
     }
     logAudit(`${driveFileNames.size} fichier(s) dans Drive ce mois`, 'success');
@@ -1215,7 +1257,17 @@ async function runAudit() {
           const inExcel = [...excelEntries].some(e => e.includes((doc.fournisseur||'').toLowerCase().slice(0,6))) ||
                          [...cbEntries].some(e => e.includes((doc.libelle||'').toLowerCase().slice(0,6)));
 
-          if (!inDrive) missing.drive.push({ doc, filename: att.filename });
+          const fname = att.filename.toLowerCase();
+          const inDrive = driveFileNames.has(fname);
+          const driveLocation = driveFileLocations[fname];
+          const expectedSubfolder = SUBFOLDER_MAP[doc.type_zone||'prestataires'];
+          const isMisplaced = inDrive && driveLocation && driveLocation.subfolder !== expectedSubfolder;
+
+          if (!inDrive) {
+            missing.drive.push({ doc, filename: att.filename, action: 'add' });
+          } else if (isMisplaced) {
+            missing.drive.push({ doc, filename: att.filename, action: 'move', currentLocation: driveLocation.subfolder, expectedLocation: expectedSubfolder });
+          }
           if (!inExcel && (doc.montant_ht || doc.montant_ttc)) missing.excel.push({ doc, filename: att.filename });
 
         } catch(e) {
@@ -1247,7 +1299,10 @@ async function runAudit() {
       const docMonthLabel = MONTHS.find(mo => mo.key === docMonthKey)?.label || selectedMonthAudit.label;
       const destWithDate = `${docMonthLabel} > ${SUBFOLDER_MAP[m.doc.type_zone||'prestataires']||''}${m.doc.fournisseur ? ' > '+m.doc.fournisseur.toUpperCase() : ''}`;
       const dateLabel = m.doc.date ? ` (facture du ${m.doc.date})` : '';
-      actions.push({ id: 'drive_'+i, kind: 'drive', label: `📁 Ranger "${m.filename}"${dateLabel}`, dest: destWithDate, montant: '', doc: m.doc, filename: m.filename, targetMonthKey: docMonthKey });
+      const driveLabel = m.action === 'move'
+        ? `🔀 Déplacer "${m.filename}" (actuellement dans ${m.currentLocation})${dateLabel}`
+        : `📁 Ranger "${m.filename}"${dateLabel}`;
+      actions.push({ id: 'drive_'+i, kind: 'drive', label: driveLabel, dest: destWithDate, montant: '', doc: m.doc, filename: m.filename, targetMonthKey: docMonthKey });
     });
     missing.excel.forEach((m, i) => {
       const docMonthKey = getMonthKeyFromDate(m.doc.date) || monthKey;
