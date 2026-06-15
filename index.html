@@ -331,26 +331,20 @@
     <div id="auditMailList" style="padding:16px;font-size:12px;line-height:1.8"></div>
   </div>
 
-  <!-- Étape 2 : ce qui manque -->
-  <div id="auditStep2" style="display:none;background:var(--surface);border:1px solid rgba(251,191,36,0.3);border-radius:16px;overflow:hidden;margin-bottom:16px">
-    <div style="padding:14px 20px;border-bottom:1px solid rgba(251,191,36,0.2)">
-      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--warning)">⚠ Ce qui manque</span>
+  <!-- Étape 2 : rapport de validation -->
+  <div id="auditStep2" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--warning)">📋 Rapport — Actions proposées</span>
+      <span id="auditActionCount" style="font-size:11px;color:var(--muted)"></span>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-      <div style="padding:16px;border-right:1px solid var(--border)">
-        <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Manquant dans Drive</div>
-        <div id="auditMissingDrive" style="font-size:12px;line-height:1.8"></div>
-      </div>
-      <div style="padding:16px">
-        <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Manquant dans Excel</div>
-        <div id="auditMissingExcel" style="font-size:12px;line-height:1.8"></div>
-      </div>
+    <div style="display:grid;grid-template-columns:40px 1fr 120px 100px 80px;gap:0;padding:8px 20px;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">
+      <span></span><span>Action</span><span>Destination</span><span>Montant HT</span><span></span>
     </div>
-  </div>
-
-  <!-- Étape 3 : compléter -->
-  <div id="auditStep3" style="display:none;margin-bottom:16px">
-    <button class="btn-save" style="width:100%" onclick="completeAudit()">✅ Compléter Drive & Excel automatiquement</button>
+    <div id="auditActionList"></div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-secondary" onclick="deselectAll()">Tout décocher</button>
+      <button class="btn-save" onclick="completeAudit()">✅ Valider les actions cochées</button>
+    </div>
   </div>
 
   <!-- Recommandations -->
@@ -1169,24 +1163,43 @@ async function runAudit() {
     // STEP 5: Display results
     document.getElementById('auditMailCount').textContent = `${mailDocs.length} document(s)`;
     document.getElementById('auditMailList').innerHTML = mailDocs.map(d =>
-      `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">
+      `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;justify-content:space-between">
         <span style="color:var(--text)">${d._filename}</span>
-        <span style="color:var(--muted);margin-left:8px">${d.fournisseur||''} — ${d.montant_ttc ? d.montant_ttc+'€ TTC' : ''}</span>
+        <span style="color:var(--muted)">${d.fournisseur||''} ${d.montant_ttc ? '— '+d.montant_ttc+'€ TTC' : ''}</span>
       </div>`
     ).join('') || '<div style="color:var(--muted2)">Aucun document trouve</div>';
 
-    document.getElementById('auditMissingDrive').innerHTML = missing.drive.length
-      ? missing.drive.map(m => `<div style="color:var(--warning)">⚠ ${m.filename}</div>`).join('')
-      : '<div style="color:var(--success)">✅ Tout est present</div>';
+    // Build validation action list
+    const actions = [];
+    missing.drive.forEach((m, i) => {
+      const type = m.doc.type_zone || 'prestataires';
+      const dest = `${selectedMonthAudit.label} > ${SUBFOLDER_MAP[type]||''}${m.doc.fournisseur ? ' > '+m.doc.fournisseur.toUpperCase() : ''}`;
+      actions.push({ id: 'drive_'+i, kind: 'drive', label: `📁 Ranger "${m.filename}"`, dest, montant: '', doc: m.doc, filename: m.filename });
+    });
+    missing.excel.forEach((m, i) => {
+      const col = MONTH_COL[monthKey];
+      const sheet = (m.doc.type_zone==='tickets') ? 'DEPENSESCB' : (m.doc.type_zone==='clients') ? 'RECETTES' : 'DEPENSES';
+      actions.push({ id: 'excel_'+i, kind: 'excel', label: `📊 Saisir "${m.doc.libelle||m.filename}"`, dest: `${sheet} col ${col}`, montant: (m.doc.montant_ht||0)+'€ HT', doc: m.doc, filename: m.filename });
+    });
 
-    document.getElementById('auditMissingExcel').innerHTML = missing.excel.length
-      ? missing.excel.map(m => `<div style="color:var(--warning)">⚠ ${m.doc.libelle||m.filename} — ${m.doc.montant_ht||0}€ HT</div>`).join('')
-      : '<div style="color:var(--success)">✅ Tout est saisi</div>';
+    window._auditActions = actions;
+    document.getElementById('auditActionCount').textContent = `${actions.length} action(s) proposée(s)`;
+    document.getElementById('auditActionList').innerHTML = actions.length
+      ? actions.map(a => `
+        <div id="row_${a.id}" style="display:grid;grid-template-columns:40px 1fr 120px 100px 80px;gap:0;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,0.03);align-items:center;transition:opacity 0.2s">
+          <div style="display:flex;align-items:center">
+            <input type="checkbox" id="chk_${a.id}" checked style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)">
+          </div>
+          <div style="font-size:12px;color:var(--text)">${a.label}</div>
+          <div style="font-size:11px;color:var(--muted)">${a.dest}</div>
+          <div style="font-size:11px;color:${a.montant ? 'var(--accent)' : 'var(--muted2)'}">${a.montant||'—'}</div>
+          <div style="text-align:right">
+            <button onclick="removeAction('${a.id}')" style="background:none;border:none;color:var(--muted2);cursor:pointer;font-size:18px;line-height:1;transition:color 0.15s" onmouseover="this.style.color='var(--error)'" onmouseout="this.style.color='var(--muted2)'" title="Retirer">×</button>
+          </div>
+        </div>`).join('')
+      : '<div style="padding:20px;text-align:center;color:var(--success);font-size:12px">✅ Rien ne manque — Drive et Excel sont complets pour ce mois !</div>';
 
     ['auditStep1','auditStep2','auditRecoPanel'].forEach(id => document.getElementById(id).style.display='block');
-    if (missing.drive.length || missing.excel.length) {
-      document.getElementById('auditStep3').style.display = 'block';
-    }
 
     // Claude recommendations
     const recoPrompt = `Mois ${selectedMonthAudit.label}. Documents trouves dans mails: ${mailDocs.length}. Manquants Drive: ${missing.drive.map(m=>m.filename).join(', ')||'aucun'}. Manquants Excel: ${missing.excel.map(m=>m.doc.libelle).join(', ')||'aucun'}. Donne 3-5 recommandations concretes pour ameliorer la comptabilite de Studio Awakening.`;
@@ -1205,37 +1218,56 @@ async function runAudit() {
 }
 
 async function completeAudit() {
-  const missing = window._auditMissingDocs;
+  const actions = window._auditActions || [];
   const monthKey = window._auditMonthKey || selectedMonthAudit.key;
-  if (!missing) return;
+  let done = 0;
 
-  logAudit('Completion automatique…', 'pending');
-  document.getElementById('auditStep3').style.display = 'none';
+  for (const a of actions) {
+    const chk = document.getElementById('chk_'+a.id);
+    if (!chk || !chk.checked) continue;
 
-  // Complete Drive
-  for (const m of missing.drive) {
+    const row = document.getElementById('row_'+a.id);
+    if (row) row.style.opacity = '0.4';
+
     try {
-      const byteChars = atob(m.doc._b64);
-      const byteArr = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
-      const file = new File([byteArr], m.filename, { type: m.doc._mimeType || 'application/pdf' });
-      const type = m.doc.type_zone || 'prestataires';
-      const provider = type === 'intermittence' ? (m.doc.sous_dossier_drive || 'RC2B') : (m.doc.fournisseur || '');
-      await uploadToDriveIntelligent(file, type, monthKey, provider);
-      logAudit(`✅ Drive: "${m.filename}" range`, 'success');
-    } catch(e) { logAudit(`Erreur Drive "${m.filename}": ${e.message}`, 'error'); }
+      if (a.kind === 'drive' && a.doc._b64) {
+        const byteChars = atob(a.doc._b64);
+        const byteArr = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+        const file = new File([byteArr], a.filename, { type: a.doc._mimeType || 'application/pdf' });
+        const type = a.doc.type_zone || 'prestataires';
+        const provider = type === 'intermittence' ? (a.doc.sous_dossier_drive || 'RC2B') : (a.doc.fournisseur || '');
+        await uploadToDriveIntelligent(file, type, monthKey, provider);
+        logAudit(`✅ Drive: "${a.filename}" range`, 'success');
+      }
+      if (a.kind === 'excel') {
+        const type = a.doc.type_zone || 'prestataires';
+        await writeToExcel(a.doc, type, monthKey);
+        logAudit(`✅ Excel: "${a.doc.libelle}" saisi — ${a.doc.montant_ht}€ HT`, 'success');
+      }
+      if (row) row.style.display = 'none';
+      done++;
+    } catch(e) {
+      logAudit(`Erreur "${a.filename||a.doc.libelle}": ${e.message}`, 'error');
+      if (row) row.style.opacity = '1';
+    }
   }
+  logAudit(`✅ ${done} action(s) effectuee(s) — Drive et Excel mis a jour !`, 'success');
+}
 
-  // Complete Excel
-  for (const m of missing.excel) {
-    try {
-      const type = m.doc.type_zone || 'prestataires';
-      await writeToExcel(m.doc, type, monthKey);
-      logAudit(`✅ Excel: "${m.doc.libelle}" saisi`, 'success');
-    } catch(e) { logAudit(`Erreur Excel "${m.doc.libelle}": ${e.message}`, 'error'); }
-  }
+function removeAction(id) {
+  const row = document.getElementById('row_'+id);
+  if (row) row.style.display = 'none';
+  window._auditActions = (window._auditActions||[]).filter(a => a.id !== id);
+  const remaining = (window._auditActions||[]).length;
+  document.getElementById('auditActionCount').textContent = `${remaining} action(s) proposee(s)`;
+}
 
-  logAudit('✅ Completion terminee — Drive et Excel a jour !', 'success');
+function deselectAll() {
+  (window._auditActions||[]).forEach(a => {
+    const chk = document.getElementById('chk_'+a.id);
+    if (chk) chk.checked = false;
+  });
 }
 </script>
 </body>
