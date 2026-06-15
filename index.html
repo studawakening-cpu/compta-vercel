@@ -295,10 +295,26 @@
     <button class="btn-save" style="width:100%" onclick="scanGmail()">📧 Scanner Gmail pour ce mois</button>
   </div>
 
+  <!-- Rapport Gmail -->
+  <div id="gmailReport" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:16px">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--warning)">📋 Documents trouvés — Choisir ce à ranger</span>
+      <span id="gmailReportCount" style="font-size:11px;color:var(--muted)"></span>
+    </div>
+    <div style="display:grid;grid-template-columns:40px 1fr 140px 100px 80px;gap:0;padding:8px 20px;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border)">
+      <span></span><span>Document</span><span>Destination</span><span>Montant HT</span><span></span>
+    </div>
+    <div id="gmailReportList"></div>
+    <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn-secondary" onclick="deselectAllGmail()">Tout décocher</button>
+      <button class="btn-save" onclick="executeGmailActions()">✅ Valider et ranger</button>
+    </div>
+  </div>
+
   <div class="log-section">
     <div class="progress-bar"><div class="progress-fill" id="progressGmail"></div></div>
     <div class="log-header">
-      <span class="log-title">Résultats du scan</span>
+      <span class="log-title">Journal du scan</span>
       <button class="btn-clear" onclick="clearLogGmail()">Effacer</button>
     </div>
     <div class="log-body" id="logGmail"><div class="log-empty">Lance un scan pour voir les documents trouvés…</div></div>
@@ -919,153 +935,188 @@ function base64UrlDecode(str) {
 }
 
 async function scanGmail() {
-  if (!googleToken) { logGmail('⚠ Connecte ton compte Google (bouton en haut)', 'error'); return; }
-  if (!localStorage.getItem('sa_claude_key')) { logGmail('⚠ Renseigne ta cle API Claude', 'error'); return; }
+  if (!googleToken) { logGmail('Connecte ton compte Google', 'error'); return; }
+  if (!localStorage.getItem('sa_claude_key')) { logGmail('Renseigne ta cle API Claude', 'error'); return; }
 
+  document.getElementById('gmailReport').style.display = 'none';
   clearLogGmail();
   setThinkingGmail(true);
   setProgressGmail(5);
-  logGmail('Recherche des mails avec documents comptables…', 'pending');
+  logGmail(`Scan des mails de ${selectedMonthGmail.label}…`, 'pending');
 
-  try {
-    // Build date range from selected month
   const MONTH_DATES = {
-    '1-AVRIL 04-26':     {after:'2026/04/01', before:'2026/04/30'},
-    '2-MAI 05-26':       {after:'2026/05/01', before:'2026/05/31'},
-    '3-JUIN 06-26':      {after:'2026/06/01', before:'2026/06/30'},
-    '4-JUILLET 07-26':   {after:'2026/07/01', before:'2026/07/31'},
-    '5-AOUT 08-26':      {after:'2026/08/01', before:'2026/08/31'},
-    '6-SEPTEMBRE 09-26': {after:'2026/09/01', before:'2026/09/30'},
-    '7-OCTOBRE 10-26':   {after:'2026/10/01', before:'2026/10/31'},
-    '8-NOVEMBRE 11-26':  {after:'2026/11/01', before:'2026/11/30'},
-    '9-DECEMBRE 12-26':  {after:'2026/12/01', before:'2026/12/31'},
-    '10-JANVIER 01-27':  {after:'2027/01/01', before:'2027/01/31'},
-    '11-FEVRIER 02-27':  {after:'2027/02/01', before:'2027/02/28'},
-    '12-MARS 03-27':     {after:'2027/03/01', before:'2027/03/31'},
+    '1-AVRIL 04-26':{after:'2026/04/01',before:'2026/04/30'},
+    '2-MAI 05-26':{after:'2026/05/01',before:'2026/05/31'},
+    '3-JUIN 06-26':{after:'2026/06/01',before:'2026/06/30'},
+    '4-JUILLET 07-26':{after:'2026/07/01',before:'2026/07/31'},
+    '5-AOUT 08-26':{after:'2026/08/01',before:'2026/08/31'},
+    '6-SEPTEMBRE 09-26':{after:'2026/09/01',before:'2026/09/30'},
+    '7-OCTOBRE 10-26':{after:'2026/10/01',before:'2026/10/31'},
+    '8-NOVEMBRE 11-26':{after:'2026/11/01',before:'2026/11/30'},
+    '9-DECEMBRE 12-26':{after:'2026/12/01',before:'2026/12/31'},
+    '10-JANVIER 01-27':{after:'2027/01/01',before:'2027/01/31'},
+    '11-FEVRIER 02-27':{after:'2027/02/01',before:'2027/02/28'},
+    '12-MARS 03-27':{after:'2027/03/01',before:'2027/03/31'},
   };
   const dateRange = MONTH_DATES[selectedMonthGmail.key] || {};
   const afterStr = dateRange.after ? ` after:${dateRange.after}` : '';
   const beforeStr = dateRange.before ? ` before:${dateRange.before}` : '';
-  logGmail(`Recherche mails du mois ${selectedMonthGmail.label}…`, 'pending');
-  const listData = await gmailAction('list', { dateRange: { after: afterStr, before: beforeStr, monthKey: selectedMonthGmail.key } });
+
+  try {
+    const listData = await gmailAction('list', { dateRange: { after: afterStr, before: beforeStr } });
     const messages = listData.messages || [];
-    if (!messages.length) { logGmail('Aucun mail comptable trouve dans les 30 derniers jours', 'info'); setThinkingGmail(false); return; }
+    if (!messages.length) {
+      logGmail('Aucun mail comptable trouve pour ce mois', 'info');
+      setThinkingGmail(false);
+      return;
+    }
+    logGmail(`${messages.length} mail(s) trouve(s) — analyse des pieces jointes…`, 'success');
+    setProgressGmail(15);
 
-    logGmail(`${messages.length} mail(s) trouve(s) — analyse en cours…`, 'success');
-    setProgressGmail(20);
-
+    const gmailActions = [];
     let processed = 0;
-    for (const msg of messages.slice(0, 10)) {
+
+    for (const msg of messages.slice(0, 15)) {
       const fullMsg = await gmailAction('get', { messageId: msg.id });
       const subject = getHeader(fullMsg.payload?.headers, 'subject');
       const from = getHeader(fullMsg.payload?.headers, 'from');
-      const date = getHeader(fullMsg.payload?.headers, 'date');
-
-      // Find attachments
       const parts = fullMsg.payload?.parts || [];
-      const attachments = parts.filter(p => p.filename && p.filename.length > 0 && 
+      const attachments = parts.filter(p => p.filename && p.filename.length > 0 &&
         (p.mimeType === 'application/pdf' || p.mimeType?.startsWith('image/')));
 
       if (!attachments.length) { processed++; continue; }
-
-      logGmail(`📧 "${subject}" de ${from.split('<')[0].trim()} — ${attachments.length} PJ`, 'info');
+      logGmail(`📧 "${subject}" — ${attachments.length} PJ`, 'info');
 
       for (const att of attachments) {
         try {
           const attData = await gmailAction('attachment', { messageId: msg.id, attachmentId: att.body.attachmentId });
           const b64 = base64UrlDecode(attData.data || '');
 
-          // Analyze with Claude
-          const claudeContent = [
-            { type: 'text', text: `Analyse cette piece jointe email. Sujet: "${subject}". Expediteur: "${from}". Date: "${date}". Retourne UNIQUEMENT un JSON valide sans markdown: {type_document, date (YYYY-MM-DD), libelle, fournisseur (max 30 chars), montant_ttc, montant_ht, tva, categorie, type_zone (tickets|prestataires|clients|nf|intermittence), sous_dossier_drive (pour intermittence: RC2B ou STUD), categorie_excel}` },
-            { type: 'document', source: { type: 'base64', media_type: att.mimeType || 'application/pdf', data: b64 } }
-          ];
+          const raw = await callClaude([{
+            role: 'user',
+            content: [
+              { type: 'text', text: `Analyse cette PJ email. Sujet: "${subject}". De: "${from}". Retourne JSON valide sans markdown: {type_document, date (YYYY-MM-DD), libelle, fournisseur (max 30 chars), montant_ttc, montant_ht, tva, type_zone (tickets|prestataires|clients|nf|intermittence), sous_dossier_drive, categorie_excel, notes}` },
+              { type: 'document', source: { type: 'base64', media_type: att.mimeType || 'application/pdf', data: b64 } }
+            ]
+          }], 'Tu es comptable de STUDIO AWAKENING. JSON valide uniquement sans markdown.');
 
-          const raw = await callClaude([{ role: 'user', content: claudeContent }], 'Tu es comptable de STUDIO AWAKENING. Analyse ce document et retourne uniquement du JSON valide.');
-          const clean = raw.replace(/```json|```/g, '').trim();
-          const doc = JSON.parse(clean);
+          const doc = JSON.parse(raw.replace(/```json|```/g, '').trim());
+          doc._b64 = b64;
+          doc._mimeType = att.mimeType;
 
-          // Detect month from document date
-          let targetMonth = selectedMonthGmail;
-          if (doc.date) {
-            const docDate = new Date(doc.date);
-            const monthMap = { 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7, 11: 8, 0: 9, 1: 10, 2: 11 };
-            const idx = monthMap[docDate.getMonth()];
-            if (idx !== undefined) targetMonth = MONTHS[idx];
-          }
-
+          // Determine real target month from doc date
+          const targetMonthKey = getMonthKeyFromDate(doc.date) || selectedMonthGmail.key;
+          const targetMonthLabel = MONTHS.find(m => m.key === targetMonthKey)?.label || selectedMonthGmail.label;
           const type = doc.type_zone || 'prestataires';
-          const providerName = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
+          const provider = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
+          const dest = `${targetMonthLabel} > ${SUBFOLDER_MAP[type]||''}${provider ? ' > '+provider.toUpperCase() : ''}`;
+          const dateLabel = doc.date ? ` (${doc.date})` : '';
 
-          // Create a File-like object for upload
-          const byteChars = atob(b64);
-          const byteArr = new Uint8Array(byteChars.length);
-          for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
-          const file = new File([byteArr], att.filename, { type: att.mimeType || 'application/pdf' });
+          gmailActions.push({
+            id: 'gmail_' + gmailActions.length,
+            kind: 'both',
+            label: `📄 "${att.filename}"${dateLabel}`,
+            sublabel: `${doc.fournisseur||''} — ${doc.type_document||''}`,
+            dest,
+            montant: doc.montant_ht ? doc.montant_ht + '€ HT' : '—',
+            doc,
+            filename: att.filename,
+            targetMonthKey
+          });
 
-          // Upload to Drive
-          await uploadToDriveIntelligent(file, type, targetMonth.key, providerName);
-          logGmail(`✓ "${att.filename}" range dans Drive → ${targetMonth.label} > ${SUBFOLDER_MAP[type]}`, 'success');
-
-          // Write to Excel
-          if (doc.montant_ht || doc.montant_ttc) {
-            await writeToExcel(doc, type, targetMonth.key);
-          }
-
-        } catch (err) {
-          logGmail(`⚠ Erreur PJ "${att.filename}": ${err.message}`, 'error');
+          logGmail(`✓ "${att.filename}" analysé → ${targetMonthLabel}`, 'success');
+        } catch(e) {
+          logGmail(`⚠ Erreur "${att.filename}": ${e.message}`, 'error');
         }
       }
       processed++;
-      setProgressGmail(20 + Math.round((processed / messages.length) * 70));
+      setProgressGmail(15 + Math.round((processed / Math.min(messages.length, 15)) * 75));
+    }
+
+    setProgressGmail(90);
+    window._gmailActions = gmailActions;
+
+    // Build report
+    if (!gmailActions.length) {
+      logGmail('Aucun document comptable detecte dans les PJ', 'info');
+    } else {
+      document.getElementById('gmailReportCount').textContent = `${gmailActions.length} document(s)`;
+      document.getElementById('gmailReportList').innerHTML = gmailActions.map(a => `
+        <div id="grow_${a.id}" style="display:grid;grid-template-columns:40px 1fr 140px 100px 80px;gap:0;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,0.03);align-items:center">
+          <div><input type="checkbox" id="gchk_${a.id}" checked style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)"></div>
+          <div>
+            <div style="font-size:12px;color:var(--text)">${a.label}</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">${a.sublabel}</div>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">${a.dest}</div>
+          <div style="font-size:11px;color:${a.montant !== '—' ? 'var(--accent)' : 'var(--muted2)'}">${a.montant}</div>
+          <div style="text-align:right">
+            <button onclick="removeGmailAction('${a.id}')" style="background:none;border:none;color:var(--muted2);cursor:pointer;font-size:18px;line-height:1" onmouseover="this.style.color='var(--error)'" onmouseout="this.style.color='var(--muted2)'" title="Retirer">×</button>
+          </div>
+        </div>`).join('');
+      document.getElementById('gmailReport').style.display = 'block';
+      logGmail(`📋 Rapport prêt — ${gmailActions.length} action(s) à valider`, 'pending');
     }
 
     setProgressGmail(100);
     setThinkingGmail(false);
-    logGmail('✅ Scan termine — Drive et Excel mis a jour', 'success');
     setTimeout(() => setProgressGmail(0), 2000);
 
-  } catch (err) {
+  } catch(err) {
     setThinkingGmail(false);
-    logGmail(`✗ Erreur scan: ${err.message}`, 'error');
+    logGmail(`Erreur: ${err.message}`, 'error');
   }
 }
 
-// ═══════════════════════════════════════
-// AUDIT DRIVE & EXCEL
-// ═══════════════════════════════════════
-buildMonthPills('monthPillsAudit', selectedMonthAudit, m => selectedMonthAudit = m);
-buildMonthPills('monthPillsGmail', selectedMonthGmail, m => selectedMonthGmail = m);
+async function executeGmailActions() {
+  const actions = window._gmailActions || [];
+  let done = 0;
 
-function logAudit(msg, type='info') {
-  const body = document.getElementById('logAudit');
-  body.querySelector('.log-empty')?.remove();
-  const time = new Date().toTimeString().slice(0,8);
-  const entry = document.createElement('div');
-  entry.className = 'log-entry';
-  entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
-  body.appendChild(entry);
-  body.scrollTop = body.scrollHeight;
-}
-function setProgressAudit(pct) { document.getElementById('progressAudit').style.width = pct + '%'; }
-function setThinkingAudit(v) { document.getElementById('thinkingAudit').className = 'thinking' + (v ? ' visible' : ''); }
+  for (const a of actions) {
+    const chk = document.getElementById('gchk_' + a.id);
+    if (!chk || !chk.checked) continue;
+    const row = document.getElementById('grow_' + a.id);
+    if (row) row.style.opacity = '0.4';
 
-function getMonthKeyFromDate(dateStr) {
-  if (!dateStr) return null;
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d)) return null;
-    const y = d.getFullYear();
-    const m = d.getMonth() + 1; // 1-12
-    const map = {
-      '2026-4':'1-AVRIL 04-26','2026-5':'2-MAI 05-26','2026-6':'3-JUIN 06-26',
-      '2026-7':'4-JUILLET 07-26','2026-8':'5-AOUT 08-26','2026-9':'6-SEPTEMBRE 09-26',
-      '2026-10':'7-OCTOBRE 10-26','2026-11':'8-NOVEMBRE 11-26','2026-12':'9-DECEMBRE 12-26',
-      '2027-1':'10-JANVIER 01-27','2027-2':'11-FEVRIER 02-27','2027-3':'12-MARS 03-27'
-    };
-    return map[`${y}-${m}`] || null;
-  } catch(e) { return null; }
+    try {
+      const byteChars = atob(a.doc._b64);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const file = new File([byteArr], a.filename, { type: a.doc._mimeType || 'application/pdf' });
+      const type = a.doc.type_zone || 'prestataires';
+      const provider = type === 'intermittence' ? (a.doc.sous_dossier_drive || 'RC2B') : (a.doc.fournisseur || '');
+      await uploadToDriveIntelligent(file, type, a.targetMonthKey, provider);
+      logGmail(`✅ Drive: "${a.filename}" rangé`, 'success');
+
+      if (a.doc.montant_ht || a.doc.montant_ttc) {
+        await writeToExcel(a.doc, type, a.targetMonthKey);
+        logGmail(`✅ Excel: "${a.doc.libelle}" saisi`, 'success');
+      }
+
+      if (row) row.style.display = 'none';
+      done++;
+    } catch(e) {
+      logGmail(`Erreur "${a.filename}": ${e.message}`, 'error');
+      if (row) row.style.opacity = '1';
+    }
+  }
+  logGmail(`✅ ${done} document(s) rangé(s) — Drive et Excel à jour !`, 'success');
 }
+
+function removeGmailAction(id) {
+  const row = document.getElementById('grow_' + id);
+  if (row) row.style.display = 'none';
+  window._gmailActions = (window._gmailActions || []).filter(a => a.id !== id);
+  document.getElementById('gmailReportCount').textContent = `${(window._gmailActions||[]).length} document(s)`;
+}
+
+function deselectAllGmail() {
+  (window._gmailActions || []).forEach(a => {
+    const chk = document.getElementById('gchk_' + a.id);
+    if (chk) chk.checked = false;
+  });
+}
+
 
 async function runAudit() {
   if (!googleToken) { logAudit('Connecte ton compte Google', 'error'); return; }
