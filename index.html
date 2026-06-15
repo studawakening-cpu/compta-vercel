@@ -388,8 +388,14 @@ async function analyzeAll(){
         if(file.type==='application/pdf'){content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}});}
         else{content.push({type:'image',source:{type:'base64',media_type:file.type,data:b64}});}
       }
-      content.push({type:'text',text:'Analyse tous les documents et fournis les instructions de classement et saisie Excel.'});
-      const system=`Tu es l'assistant comptable de STUDIO AWAKENING (SAS, SIREN 927 848 804, Lyon, NAF 5911B). Mois sélectionné: ${selectedMonth.label} (dossier Drive: ${selectedMonth.key}). Pour chaque document fournis: 1) TYPE 2) DONNÉES (date, fournisseur/client, TTC, HT, TVA, catégorie) 3) DOSSIER DRIVE cible 4) LIGNE EXCEL à renseigner 5) NOTES. Pour tickets CB: chaque ticket individuel avec TTC, HT (TTC/1.20), TVA. Réponds en français, concis et structuré.`;
+      const SYSTEMS = {
+        tickets: `Tu es comptable de STUDIO AWAKENING. Analyse ces tickets CB et retourne UNIQUEMENT un JSON valide sans markdown avec un tableau "documents". Chaque element: nom_fichier, type_document:"ticket_cb", date (YYYY-MM-DD), libelle (nom commerce), fournisseur (nom court max 30 chars), montant_ttc (nombre), montant_ht (ttc/1.20 arrondi 2 dec, si pas TVA alors ht=ttc), tva (ttc-ht arrondi 2 dec, 0 si pas TVA), categorie (Alimentaire|Repas|Deplacement|Materiel|Logiciel|Fournitures|Hebergement|Autre), notes.`,
+        prestataires: `Tu es comptable de STUDIO AWAKENING. Analyse ces factures prestataires et retourne UNIQUEMENT un JSON valide sans markdown avec un tableau "documents". Chaque element: nom_fichier, type_document:"facture_prestataire", date (YYYY-MM-DD), libelle, fournisseur (nom societe max 30 chars), montant_ttc, montant_ht, tva, categorie (Sous-traitance|Location materiel|Achat materiel|Logiciel|Abonnement|Autre), notes.`,
+        clients: `Tu es comptable de STUDIO AWAKENING. Analyse ces factures clients et retourne UNIQUEMENT un JSON valide sans markdown avec un tableau "documents". Chaque element: nom_fichier, type_document:"facture_client", date (YYYY-MM-DD), libelle, fournisseur (nom client max 30 chars), montant_ttc, montant_ht, tva, categorie, notes.`,
+        nf: `Tu es comptable de STUDIO AWAKENING. Analyse ces notes de frais et retourne UNIQUEMENT un JSON valide sans markdown avec un tableau "documents". Chaque element: nom_fichier, type_document:"note_de_frais", date (YYYY-MM-DD), libelle, fournisseur, montant_ttc, montant_ht, tva, categorie, notes.`,
+        intermittence: `Tu es comptable de STUDIO AWAKENING. Analyse ces documents d'intermittence du spectacle et retourne UNIQUEMENT un JSON valide sans markdown avec un tableau "documents". Chaque element: nom_fichier, type_document (fiche_de_paie|attestation_AEM|releve_pole_emploi|contrat_travail|document_charges|feuille_service|feuille_route|autre), date (YYYY-MM-DD), libelle, fournisseur (URSSAF|AUDIENS|APOLLON_EMPLOI|FRANCE_TRAVAIL|STUDIO_AWAKENING|autre), montant_ttc (0 si pas de montant), montant_ht (idem), tva (0), categorie_excel (ligne Excel: URSSAF|AUDIENS|FRANCE TRAVAIL|Eloi Garcin Intermittence|COMPTA INTERMITTENT|autre), sous_dossier_drive (RC2B si document organisme/comptable, STUD si document emis par Studio), notes.`
+      };
+      const system = SYSTEMS[type] || SYSTEMS.prestataires;
       const result=await callClaude([{role:'user',content}],system);
       log(`✓ ${labelFor(type)} analysé`,'success');
       document.getElementById('resultBody').textContent=result;
@@ -609,10 +615,15 @@ async function uploadToDriveIntelligent(file, type, monthKey, providerName) {
   // Get or create main subfolder (ex: FACTURES PRESTATAIRES)
   const subFolderId = await getSubfolderId(monthKey, subfolder);
   
-  // For prestataires and clients, create provider subfolder if needed
+  // Create smart subfolders based on type
   let targetFolderId = subFolderId;
   if ((type === 'prestataires' || type === 'clients') && providerName) {
+    // Prestataires/clients: create provider subfolder
     targetFolderId = await getOrCreateSubfolder(subFolderId, providerName.toUpperCase());
+  } else if (type === 'intermittence') {
+    // Intermittence: create RC2B or STUD subfolder based on document type
+    const subDir = providerName === 'STUD' ? 'STUD' : 'RC2B';
+    targetFolderId = await getOrCreateSubfolder(subFolderId, subDir);
   }
   
   const b64 = await toBase64(file);
@@ -637,6 +648,11 @@ async function writeToExcel(doc, type, monthKey) {
   if (!col) throw new Error('Mois non reconnu');
   
   const sheetName = type === 'tickets' ? 'DEPENSESCB' : type === 'clients' ? 'RECETTES' : 'DEPENSES';
+
+  // For intermittence: use categorie_excel as the libelle to match
+  if (type === 'intermittence' && doc.categorie_excel) {
+    doc.libelle = doc.categorie_excel;
+  }
   
   if (type === 'tickets') {
     // Append new row to DEPENSESCB
@@ -743,9 +759,16 @@ async function analyzeAll(){
 
       // 2. Upload each file to Drive intelligently (with subfolder creation)
       log(`📁 Rangement dans Drive…`,'pending');
-      const providerName = data.documents?.[0]?.fournisseur || data.documents?.[0]?.libelle || '';
-      for(const f of files[type]){
+      for(let fi=0; fi<files[type].length; fi++){
+        const f=files[type][fi];
         const file=f.file||f;
+        const doc=data.documents?.[fi]||data.documents?.[0];
+        let providerName = '';
+        if(type==='intermittence') {
+          providerName = doc?.sous_dossier_drive || 'RC2B';
+        } else {
+          providerName = doc?.fournisseur || doc?.libelle || '';
+        }
         try{
           await uploadToDriveIntelligent(file, type, selectedMonth.key, providerName);
           log(`✓ "${file.name}" rangé dans Drive`,'success');
