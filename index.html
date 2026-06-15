@@ -611,7 +611,7 @@ async function appendToSheets(sheetName, values) {
 // ═══════════════════════════════════════
 async function analyzeAll(){
   if(!localStorage.getItem('sa_claude_key')){log('⚠ Renseigne ta clé API Claude en haut','error');return;}
-  if(!googleToken){log('⚠ Connecte ton compte Google d'abord (bouton en haut à droite)','error');return;}
+  if(!googleToken){log('⚠ Connecte ton compte Google (bouton en haut a droite)','error');return;}
   const total=Object.values(files).flat().length;
   if(total===0){log('⚠ Aucun fichier déposé','error');return;}
   log(`Démarrage — ${total} fichier(s) — Mois: ${selectedMonth.label}`,'pending');
