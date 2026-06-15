@@ -3,8 +3,8 @@ export default async function handler(req, res) {
   if (error) return res.status(400).send(`Erreur OAuth: ${error}`);
   if (!code) return res.status(400).send('Code manquant');
 
-  const CLIENT_ID = '475047895217-6uh2kfvqdo9kouad2aqe1b2n45t4v7i6a.apps.googleusercontent.com';
-  const CLIENT_SECRET = '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';
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
   const REDIRECT_URI = 'https://compta-vercel.vercel.app/api/auth/callback';
 
   try {

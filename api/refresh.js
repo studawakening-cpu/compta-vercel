@@ -7,8 +7,8 @@ export default async function handler(req, res) {
   const { refresh_token } = req.body;
   if (!refresh_token) return res.status(400).json({ error: 'refresh_token manquant' });
 
-  const CLIENT_ID = '475047895217-6uh2kfvqdo9kouad2aqe1b2n45t4v7i6a.apps.googleusercontent.com';
-  const CLIENT_SECRET = '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';
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+  const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

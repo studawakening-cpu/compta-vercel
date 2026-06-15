@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const CLIENT_ID = '475047895217-6uh2kfvqdo9kouad2aqe1b2n45t4v7i6a.apps.googleusercontent.com';
+  const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
   const REDIRECT_URI = 'https://compta-vercel.vercel.app/api/auth/callback';
   const SCOPES = [
     'https://www.googleapis.com/auth/drive',
