@@ -286,11 +286,13 @@
 <div class="tab-panel" id="tab-gmail">
 <main>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px">
-    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Scanner les 30 derniers jours</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Je cherche dans tes mails les factures, relevés, attestations et documents comptables avec pièces jointes, puis je les range automatiquement dans le Drive et l'Excel.</div>
-    <div style="display:flex;gap:12px">
-      <button class="btn-save" style="flex:1" onclick="scanGmail()">📧 Scanner Gmail maintenant</button>
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Scanner Gmail par mois</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Je cherche dans tes mails du mois sélectionné les factures, relevés, attestations et documents comptables, puis je les range automatiquement dans le Drive et l'Excel.</div>
+    <div class="month-row" style="margin-bottom:16px">
+      <span class="month-label">Mois</span>
+      <div class="month-pills" id="monthPillsGmail"></div>
     </div>
+    <button class="btn-save" style="width:100%" onclick="scanGmail()">📧 Scanner Gmail pour ce mois</button>
   </div>
 
   <div class="log-section">
@@ -863,6 +865,7 @@ async function analyzeAll(){
 // GMAIL SCANNER
 // ═══════════════════════════════════════
 let selectedMonthAudit = MONTHS[1];
+let selectedMonthGmail = MONTHS[1];
 
 function logGmail(msg, type='info') {
   const body = document.getElementById('logGmail');
@@ -909,7 +912,26 @@ async function scanGmail() {
   logGmail('Recherche des mails avec documents comptables…', 'pending');
 
   try {
-    const listData = await gmailAction('list');
+    // Build date range from selected month
+  const MONTH_DATES = {
+    '1-AVRIL 04-26':     {after:'2026/04/01', before:'2026/04/30'},
+    '2-MAI 05-26':       {after:'2026/05/01', before:'2026/05/31'},
+    '3-JUIN 06-26':      {after:'2026/06/01', before:'2026/06/30'},
+    '4-JUILLET 07-26':   {after:'2026/07/01', before:'2026/07/31'},
+    '5-AOUT 08-26':      {after:'2026/08/01', before:'2026/08/31'},
+    '6-SEPTEMBRE 09-26': {after:'2026/09/01', before:'2026/09/30'},
+    '7-OCTOBRE 10-26':   {after:'2026/10/01', before:'2026/10/31'},
+    '8-NOVEMBRE 11-26':  {after:'2026/11/01', before:'2026/11/30'},
+    '9-DECEMBRE 12-26':  {after:'2026/12/01', before:'2026/12/31'},
+    '10-JANVIER 01-27':  {after:'2027/01/01', before:'2027/01/31'},
+    '11-FEVRIER 02-27':  {after:'2027/02/01', before:'2027/02/28'},
+    '12-MARS 03-27':     {after:'2027/03/01', before:'2027/03/31'},
+  };
+  const dateRange = MONTH_DATES[selectedMonthGmail.key] || {};
+  const afterStr = dateRange.after ? ` after:${dateRange.after}` : '';
+  const beforeStr = dateRange.before ? ` before:${dateRange.before}` : '';
+  logGmail(`Recherche mails du mois ${selectedMonthGmail.label}…`, 'pending');
+  const listData = await gmailAction('list', { dateRange: { after: afterStr, before: beforeStr, monthKey: selectedMonthGmail.key } });
     const messages = listData.messages || [];
     if (!messages.length) { logGmail('Aucun mail comptable trouve dans les 30 derniers jours', 'info'); setThinkingGmail(false); return; }
 
@@ -948,7 +970,7 @@ async function scanGmail() {
           const doc = JSON.parse(clean);
 
           // Detect month from document date
-          let targetMonth = selectedMonth;
+          let targetMonth = selectedMonthGmail;
           if (doc.date) {
             const docDate = new Date(doc.date);
             const monthMap = { 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7, 11: 8, 0: 9, 1: 10, 2: 11 };
@@ -997,6 +1019,7 @@ async function scanGmail() {
 // AUDIT DRIVE & EXCEL
 // ═══════════════════════════════════════
 buildMonthPills('monthPillsAudit', selectedMonthAudit, m => selectedMonthAudit = m);
+buildMonthPills('monthPillsGmail', selectedMonthGmail, m => selectedMonthGmail = m);
 
 function logAudit(msg, type='info') {
   const body = document.getElementById('logAudit');

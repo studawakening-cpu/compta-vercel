@@ -11,9 +11,12 @@ module.exports = async function handler(req, res) {
 
   try {
     if (action === 'list') {
-      // Search for emails with attachments that look like invoices/accounting docs
-      const query = 'has:attachment (facture OR invoice OR releve OR bulletin OR attestation OR urssaf OR audiens OR apollon OR "note de frais") newer_than:30d';
-      const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=20`, {
+      const { dateRange } = req.body;
+      const afterStr = dateRange?.after || '';
+      const beforeStr = dateRange?.before || '';
+      const baseQuery = 'has:attachment (facture OR invoice OR releve OR bulletin OR attestation OR urssaf OR audiens OR apollon OR "note de frais" OR devis OR cotisation OR salaire OR paie)';
+      const query = baseQuery + afterStr + beforeStr;
+      const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=50`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       return res.status(200).json(await r.json());
