@@ -14,8 +14,10 @@ module.exports = async function handler(req, res) {
       const { dateRange } = req.body;
       const afterStr = dateRange?.after || '';
       const beforeStr = dateRange?.before || '';
-      const baseQuery = 'has:attachment (facture OR invoice OR releve OR bulletin OR attestation OR urssaf OR audiens OR apollon OR "note de frais" OR devis OR cotisation OR salaire OR paie)';
-      const query = baseQuery + afterStr + beforeStr;
+      // Two searches: accounting keywords + self-sent emails (tickets CB)
+      const baseQuery = 'has:attachment (facture OR invoice OR releve OR bulletin OR attestation OR urssaf OR audiens OR apollon OR "note de frais" OR devis OR cotisation OR salaire OR paie OR ticket OR tickets)';
+      const selfQuery = 'has:attachment from:me to:me';
+      const query = `(${baseQuery} OR ${selfQuery})` + afterStr + beforeStr;
       const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=50`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
