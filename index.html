@@ -1253,12 +1253,10 @@ async function runAudit() {
           doc._msgId = msg.id;
           mailDocs.push(doc);
 
-          const inDrive = driveFileNames.has(att.filename.toLowerCase());
-          const inExcel = [...excelEntries].some(e => e.includes((doc.fournisseur||'').toLowerCase().slice(0,6))) ||
-                         [...cbEntries].some(e => e.includes((doc.libelle||'').toLowerCase().slice(0,6)));
-
           const fname = att.filename.toLowerCase();
           const inDrive = driveFileNames.has(fname);
+          const inExcel = [...excelEntries].some(e => e.includes((doc.fournisseur||'').toLowerCase().slice(0,6))) ||
+                         [...cbEntries].some(e => e.includes((doc.libelle||'').toLowerCase().slice(0,6)));
           const driveLocation = driveFileLocations[fname];
           const expectedSubfolder = SUBFOLDER_MAP[doc.type_zone||'prestataires'];
           const isMisplaced = inDrive && driveLocation && driveLocation.subfolder !== expectedSubfolder;
