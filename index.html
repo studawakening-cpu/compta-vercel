@@ -132,7 +132,12 @@
     <div class="logo-mark"><svg viewBox="0 0 18 18" fill="none"><path d="M9 2L15 5.5V12.5L9 16L3 12.5V5.5L9 2Z" fill="#0c0c0e"/></svg></div>
     <div><div class="logo-text">Studio Awakening</div><div class="logo-sub">Compta 2026 — 2027</div></div>
   </div>
-  <div class="header-status"><div class="status-dot"></div><span id="statusText">Prêt</span></div>
+  <div class="header-status" style="gap:16px">
+    <button id="googleBtn" onclick="connectGoogle()" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 14px;font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px">
+      <span>🔗</span><span id="googleBtnText">Connecter Google</span>
+    </button>
+    <div style="display:flex;align-items:center;gap:8px"><div class="status-dot"></div><span id="statusText">Prêt</span></div>
+  </div>
 </header>
 
 <div class="tabs-nav">
@@ -460,6 +465,202 @@ async function generateNF(){
   XLSX.writeFile(wb,filename);
   logNF(`✓ "${filename}" téléchargé !`,'success');
   logNF(`→ Drive : ${selectedMonthNF.key} > NOTE DE FRAIS`,'info');
+}
+
+// ═══════════════════════════════════════
+// GOOGLE OAUTH + DRIVE + SHEETS
+// ═══════════════════════════════════════
+const COMPTA_FOLDER_ID = '1VUAwupB9VmrlmnA_tZTV1BkvwiUhztcf';
+const EXCEL_FILE_ID = '1o2kKdMX-N5IUa-321Yr3ZdIEOAv9MQzQ'; // Tableau de bord 2026-27
+
+const MONTH_FOLDER_IDS = {
+  '1-AVRIL 04-26':     '1cLbr0K87HJwYz1w5C2zKxhpLNtXlYZXm',
+  '2-MAI 05-26':       '1k3-Cj3fJ2ySrKv-dbvCuhyS31ASYmTu1',
+  '3-JUIN 06-26':      '1QmtTV3w2Nm0sQk7dmBH8Cof3PBW5rFvF',
+  '4-JUILLET 07-26':   '1o1T5dP2pazYB7uYQ64VmQX3AnM9zhT6C',
+  '5-AOUT 08-26':      '1X2o6dSg1PTA5TKa1vo4Mgqzd7LX8E46z',
+  '6-SEPTEMBRE 09-26': '1SmoJxY-TENXwJsEPLWL9J0Zv3E8CGLrm',
+  '7-OCTOBRE 10-26':   '1mh7KlRK2UJWtD6ZXQ8Epf9V2YD-KkHAz',
+  '8-NOVEMBRE 11-26':  '1_3FPQIuaCMGCPmdplZF1meGj4bG3UmEG',
+  '9-DECEMBRE 12-26':  '1HF-DHRtrKoACI6yQpSlzsn1RYVSS0Mq5',
+  '10-JANVIER 01-27':  '19IQQJjCup003wV9ehTRCWd0bzMkC0nmP',
+  '11-FEVRIER 02-27':  '1xfLCIErLKP1wn1dJAnea5ysmMZlH8Zn4',
+  '12-MARS 03-27':     '1iSEsLBUM746g9X1KwqFBRP1IDRzArsoh'
+};
+
+const SUBFOLDER_MAP = {
+  tickets:       'CARTE BLEUE ENTREPRISE',
+  prestataires:  'FACTURES PRESTATAIRES',
+  clients:       'FACTURES CLIENTS',
+  nf:            'NOTE DE FRAIS',
+  intermittence: 'INTERMITTENCE'
+};
+
+let googleToken = null;
+let googleRefreshToken = null;
+
+// Init — check URL params after OAuth redirect
+(function initGoogle() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('access_token')) {
+    googleToken = params.get('access_token');
+    googleRefreshToken = params.get('refresh_token');
+    localStorage.setItem('sa_google_token', googleToken);
+    localStorage.setItem('sa_google_refresh', googleRefreshToken);
+    window.history.replaceState({}, '', '/');
+    updateGoogleBtn(true);
+    log('✅ Google connecté — Drive, Sheets et Gmail actifs', 'success');
+  } else {
+    const saved = localStorage.getItem('sa_google_token');
+    if (saved) { googleToken = saved; googleRefreshToken = localStorage.getItem('sa_google_refresh'); updateGoogleBtn(true); }
+  }
+})();
+
+function updateGoogleBtn(connected) {
+  const btn = document.getElementById('googleBtn');
+  const txt = document.getElementById('googleBtnText');
+  if (connected) {
+    btn.style.borderColor = 'rgba(74,222,128,0.4)';
+    btn.style.color = '#4ade80';
+    txt.textContent = 'Google connecté ✓';
+    btn.onclick = disconnectGoogle;
+  } else {
+    btn.style.borderColor = '';
+    btn.style.color = '';
+    txt.textContent = 'Connecter Google';
+    btn.onclick = connectGoogle;
+  }
+}
+
+function connectGoogle() { window.location.href = '/api/auth'; }
+
+function disconnectGoogle() {
+  googleToken = null; googleRefreshToken = null;
+  localStorage.removeItem('sa_google_token');
+  localStorage.removeItem('sa_google_refresh');
+  updateGoogleBtn(false);
+  log('Google déconnecté', 'info');
+}
+
+async function refreshGoogleToken() {
+  if (!googleRefreshToken) return false;
+  const res = await fetch('/api/refresh', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({refresh_token: googleRefreshToken})
+  });
+  const data = await res.json();
+  if (data.access_token) { googleToken = data.access_token; localStorage.setItem('sa_google_token', googleToken); return true; }
+  return false;
+}
+
+async function driveAction(action, params) {
+  if (!googleToken) throw new Error('Google non connecté — clique sur "Connecter Google"');
+  const res = await fetch('/api/drive', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','Authorization':`Bearer ${googleToken}`},
+    body: JSON.stringify({action, ...params})
+  });
+  if (res.status === 401) {
+    const refreshed = await refreshGoogleToken();
+    if (!refreshed) throw new Error('Session Google expirée — reconnecte-toi');
+    return driveAction(action, params);
+  }
+  return res.json();
+}
+
+async function getSubfolderId(monthKey, subfolder) {
+  const monthFolderId = MONTH_FOLDER_IDS[monthKey];
+  if (!monthFolderId) throw new Error(`Dossier mois introuvable: ${monthKey}`);
+  const data = await driveAction('listFolders', {folderId: monthFolderId});
+  const folder = data.files?.find(f => f.name === subfolder);
+  if (!folder) throw new Error(`Sous-dossier "${subfolder}" introuvable dans ${monthKey}`);
+  return folder.id;
+}
+
+async function uploadToDrive(file, type, monthKey) {
+  const subfolder = SUBFOLDER_MAP[type];
+  const folderId = await getSubfolderId(monthKey, subfolder);
+  const b64 = await toBase64(file);
+  const data = await driveAction('upload', {
+    folderId, fileName: file.name,
+    fileContent: b64, mimeType: file.type || 'application/pdf'
+  });
+  return data;
+}
+
+async function appendToSheets(sheetName, values) {
+  return driveAction('sheetsAppend', {
+    spreadsheetId: EXCEL_FILE_ID,
+    range: `${sheetName}!A:Z`,
+    values
+  });
+}
+
+// ═══════════════════════════════════════
+// OVERRIDE analyzeAll to also save to Drive + Sheets
+// ═══════════════════════════════════════
+async function analyzeAll(){
+  if(!localStorage.getItem('sa_claude_key')){log('⚠ Renseigne ta clé API Claude en haut','error');return;}
+  if(!googleToken){log('⚠ Connecte ton compte Google d'abord (bouton en haut à droite)','error');return;}
+  const total=Object.values(files).flat().length;
+  if(total===0){log('⚠ Aucun fichier déposé','error');return;}
+  log(`Démarrage — ${total} fichier(s) — Mois: ${selectedMonth.label}`,'pending');
+  setProgress(5);let processed=0;
+
+  for(const type of['tickets','prestataires','clients','nf','intermittence']){
+    if(!files[type].length)continue;
+    log(`Traitement ${labelFor(type)} (${files[type].length} fichier(s))…`,'pending');
+    setThinking(true,`Analyse ${labelFor(type)}…`);
+    try{
+      // 1. Build Claude prompt
+      const content=[];
+      for(const f of files[type]){
+        const file=f.file||f;
+        content.push({type:'text',text:`--- ${file.name} (${labelFor(type)}) ---`});
+        const b64=await toBase64(file);
+        if(file.type==='application/pdf'){content.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}});}
+        else{content.push({type:'image',source:{type:'base64',media_type:file.type,data:b64}});}
+      }
+      content.push({type:'text',text:`Analyse ces documents et retourne UNIQUEMENT un JSON valide (sans markdown) avec un tableau "documents" où chaque élément a: nom_fichier, type_document, date (YYYY-MM-DD), libelle, montant_ttc (nombre), montant_ht (nombre), tva (nombre), categorie, notes. Pour tickets CB: un document par ticket avec type_document="ticket_cb".`});
+
+      const system=`Tu es l'assistant comptable de STUDIO AWAKENING (SAS, SIREN 927 848 804, Lyon). Mois: ${selectedMonth.label}. Retourne uniquement du JSON valide sans markdown.`;
+      const raw=await callClaude([{role:'user',content}],system);
+      const clean=raw.replace(/\`\`\`json|\`\`\`/g,'').trim();
+      const data=JSON.parse(clean);
+
+      // 2. Upload each file to Drive
+      log(`📁 Rangement dans Drive…`,'pending');
+      for(const f of files[type]){
+        const file=f.file||f;
+        try{
+          await uploadToDrive(file, type, selectedMonth.key);
+          log(`✓ "${file.name}" rangé dans ${selectedMonth.key} > ${SUBFOLDER_MAP[type]}`,'success');
+        }catch(err){log(`⚠ Drive: ${err.message}`,'error');}
+      }
+
+      // 3. Append to Sheets (DEPENSESCB for tickets, else DEPENSES)
+      if(data.documents && data.documents.length){
+        log(`📊 Saisie dans l'Excel…`,'pending');
+        for(const doc of data.documents){
+          try{
+            let sheetName='DEPENSES';
+            let row=[doc.date||'', doc.libelle||'', doc.montant_ttc||0, doc.montant_ht||0, doc.tva||0, doc.categorie||'', selectedMonth.label, doc.notes||''];
+            if(type==='tickets'){sheetName='DEPENSESCB'; row=[doc.date||'', doc.libelle||'', doc.categorie||'', doc.montant_ttc||0, doc.montant_ht||0, doc.tva||0, selectedMonth.label];}
+            if(type==='clients'){sheetName='RECETTES'; row=[doc.date||'', doc.libelle||'', doc.montant_ht||0, doc.tva||0, doc.montant_ttc||0, selectedMonth.label];}
+            await appendToSheets(sheetName, [row]);
+            log(`✓ Saisie Excel: ${doc.libelle} — ${doc.montant_ttc}€`,'success');
+          }catch(err){log(`⚠ Excel: ${err.message}`,'error');}
+        }
+      }
+
+      processed+=files[type].length;
+      setProgress(Math.round((processed/total)*100));
+    }catch(err){log(`✗ Erreur ${labelFor(type)}: ${err.message}`,'error');}
+  }
+
+  setThinking(false);setProgress(100);
+  log('✅ Tout terminé — Drive rangé + Excel rempli','success');
+  setTimeout(()=>setProgress(0),2000);
 }
 </script>
 </body>
