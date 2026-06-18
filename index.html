@@ -509,13 +509,13 @@ function setThinkingNF(v,text='Extraction en cours…'){document.getElementById(
 
 function toBase64(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result.split(',')[1]);r.onerror=reject;r.readAsDataURL(file);});}
 
-async function callClaude(messages,systemPrompt){
+async function callClaude(messages,systemPrompt,maxTokens=4000){
   const key=localStorage.getItem('sa_claude_key');
   if(!key)throw new Error('Clé API Claude manquante');
   const response=await fetch('/api/claude',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':key},
-    body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:2000,system:systemPrompt,messages})
+    body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:maxTokens,system:systemPrompt,messages})
   });
   if(!response.ok){const err=await response.json();throw new Error(err.error?.message||`HTTP ${response.status}`);}
   const data=await response.json();
@@ -1557,16 +1557,45 @@ async function processBanqueFile(fileList) {
     const raw = await callClaude([{
       role: 'user',
       content: [
-        { type: 'text', text: 'Analyse ce releve bancaire et extrait TOUTES les transactions (debits ET credits). Retourne UNIQUEMENT un JSON valide sans markdown: {transactions: [{date (YYYY-MM-DD), libelle, montant (negatif si debit, positif si credit), type ("debit"|"credit")}]}. Sois exhaustif, n omets aucune ligne.' },
+        { type: 'text', text: 'Analyse ce releve bancaire et extrait TOUTES les transactions (debits ET credits). Retourne UNIQUEMENT un JSON valide sans markdown: {transactions: [{date (YYYY-MM-DD), libelle, montant (negatif si debit, positif si credit), type ("debit"|"credit")}]}. Sois exhaustif, n omets aucune ligne. Garde les libelles courts (max 50 caracteres).' },
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
       ]
-    }], 'Tu es comptable expert en lecture de releves bancaires francais. JSON valide uniquement, sans markdown, sans commentaire.');
+    }], 'Tu es comptable expert en lecture de releves bancaires francais. JSON valide uniquement, sans markdown, sans commentaire, sans texte explicatif. Le JSON doit etre complet et bien forme meme si tu dois raccourcir les libelles pour tenir dans la limite.', 8000);
 
     const clean = raw.replace(/```json|```/g, '').trim();
-    const data = JSON.parse(clean);
-    const transactions = (data.transactions || []).filter(t => t.montant < 0); // only expenses for now
+    let data;
+    try {
+      data = JSON.parse(clean);
+    } catch(parseErr) {
+      // Try to salvage partial JSON by finding the last complete transaction
+      const lastCompleteIdx = clean.lastIndexOf('},');
+      if (lastCompleteIdx > 0) {
+        const salvaged = clean.substring(0, lastCompleteIdx + 1) + ']}';
+        try {
+          data = JSON.parse(salvaged);
+          logBanque('⚠ Relevé long — extraction partielle (certaines transactions en fin de relevé ont pu être omises)', 'pending');
+        } catch(e2) {
+          throw new Error('Le relevé est trop long pour être analysé en une fois. Essaie de le scinder en deux PDF plus courts.');
+        }
+      } else {
+        throw new Error('Le relevé est trop long pour être analysé en une fois. Essaie de le scinder en deux PDF plus courts.');
+      }
+    }
 
-    logBanque(`${transactions.length} débit(s) trouvé(s) sur le relevé`, 'success');
+    // Filter out automatic/recurring bank fees that never have a separate justificatif
+    const AUTO_BANK_PATTERNS = [
+      'cotis tenue de compte', 'frais tenue de compte', 'jazz pro', 'cions tenue de compte',
+      'sg jazz pro', 'cotisation carte', 'frais de dossier', 'agios', 'commission',
+      'prelevement europeen', 'frais bancaire', 'tenue compte', 'abonnement banque'
+    ];
+    const allTransactions = (data.transactions || []).filter(t => t.montant < 0);
+    const transactions = allTransactions.filter(t => {
+      const lib = (t.libelle || '').toLowerCase();
+      return !AUTO_BANK_PATTERNS.some(p => lib.includes(p));
+    });
+    const autoExcluded = allTransactions.length - transactions.length;
+
+    logBanque(`${transactions.length} débit(s) à analyser (${autoExcluded} frais bancaires automatiques exclus)`, 'success');
     setProgressBanque(30);
 
     // Step 2: Get existing Drive files for this month
@@ -1642,16 +1671,162 @@ ${missing.slice(0,25).map(t => `- ${t.date}: ${t.libelle} — ${Math.abs(t.monta
 
     document.getElementById('banqueSynthese').textContent = synthese;
     document.getElementById('banqueResults').style.display = 'block';
+    window._banqueMissingTransactions = missing;
+
+    // Add a button to scan Gmail for the missing ones
+    const banqueResultsDiv = document.getElementById('banqueResults');
+    let scanBtnDiv = document.getElementById('banqueScanBtnDiv');
+    if (!scanBtnDiv) {
+      scanBtnDiv = document.createElement('div');
+      scanBtnDiv.id = 'banqueScanBtnDiv';
+      scanBtnDiv.style.marginTop = '16px';
+      banqueResultsDiv.appendChild(scanBtnDiv);
+    }
+    scanBtnDiv.innerHTML = missing.length
+      ? `<button class="btn-save" style="width:100%" onclick="scanGmailForMissing()">📧 Chercher les ${missing.length} document(s) manquant(s) dans Gmail</button>`
+      : '';
 
     setProgressBanque(100);
     setThinkingBanque(false);
     logBanque('✅ Rapprochement terminé', 'success');
     setTimeout(() => setProgressBanque(0), 2000);
 
-  } catch (err) {
+async function scanGmailForMissing() {
+  const missing = window._banqueMissingTransactions || [];
+  if (!missing.length) return;
+
+  logBanque(`Recherche Gmail pour ${missing.length} transaction(s)…`, 'pending');
+  setThinkingBanque(true);
+
+  const monthKey = selectedMonthBanque.key;
+  const MONTH_DATES = {
+    '1-AVRIL 04-26':{after:'2026/04/01',before:'2026/04/30'},
+    '2-MAI 05-26':{after:'2026/05/01',before:'2026/05/31'},
+    '3-JUIN 06-26':{after:'2026/06/01',before:'2026/06/30'},
+    '4-JUILLET 07-26':{after:'2026/07/01',before:'2026/07/31'},
+    '5-AOUT 08-26':{after:'2026/08/01',before:'2026/08/31'},
+    '6-SEPTEMBRE 09-26':{after:'2026/09/01',before:'2026/09/30'},
+    '7-OCTOBRE 10-26':{after:'2026/10/01',before:'2026/10/31'},
+    '8-NOVEMBRE 11-26':{after:'2026/11/01',before:'2026/11/30'},
+    '9-DECEMBRE 12-26':{after:'2026/12/01',before:'2026/12/31'},
+    '10-JANVIER 01-27':{after:'2027/01/01',before:'2027/01/31'},
+    '11-FEVRIER 02-27':{after:'2027/02/01',before:'2027/02/28'},
+    '12-MARS 03-27':{after:'2027/03/01',before:'2027/03/31'},
+  };
+  const dateRange = MONTH_DATES[monthKey] || {};
+  const afterStr = dateRange.after ? ` after:${dateRange.after}` : '';
+  const beforeStr = dateRange.before ? ` before:${dateRange.before}` : '';
+
+  try {
+    const listData = await gmailAction('list', { dateRange: { after: afterStr, before: beforeStr } });
+    const messages = listData.messages || [];
+    logBanque(`${messages.length} mail(s) à analyser`, 'info');
+
+    const foundActions = [];
+
+    for (const msg of messages.slice(0, 20)) {
+      const fullMsg = await gmailAction('get', { messageId: msg.id });
+      const subject = getHeader(fullMsg.payload?.headers, 'subject');
+      const from = getHeader(fullMsg.payload?.headers, 'from');
+      const parts = fullMsg.payload?.parts || [];
+      const attachments = parts.filter(p => p.filename && (p.mimeType === 'application/pdf' || p.mimeType?.startsWith('image/')));
+      if (!attachments.length) continue;
+
+      for (const att of attachments) {
+        try {
+          const attData = await gmailAction('attachment', { messageId: msg.id, attachmentId: att.body.attachmentId });
+          const b64 = base64UrlDecode(attData.data || '');
+
+          const raw = await callClaude([{
+            role: 'user',
+            content: [
+              { type: 'text', text: `Analyse cette PJ. Sujet: "${subject}". Retourne JSON: {type_document, date, libelle, fournisseur, montant_ttc, montant_ht, tva, type_zone (tickets|prestataires|clients|nf|intermittence), sous_dossier_drive, categorie_excel}` },
+              { type: 'document', source: { type: 'base64', media_type: att.mimeType || 'application/pdf', data: b64 } }
+            ]
+          }], 'Tu es comptable. JSON valide uniquement.');
+
+          const doc = JSON.parse(raw.replace(/```json|```/g, '').trim());
+          doc._b64 = b64;
+          doc._mimeType = att.mimeType;
+
+          // Check if this document matches one of the missing transactions
+          const docMontant = Math.abs(doc.montant_ttc || 0);
+          const matches = missing.some(t => Math.abs(Math.abs(t.montant) - docMontant) < 0.5);
+
+          if (matches) {
+            const targetMonthKey = getMonthKeyFromDate(doc.date) || monthKey;
+            const type = doc.type_zone || 'prestataires';
+            const provider = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
+            foundActions.push({
+              id: 'bq_' + foundActions.length,
+              label: `📄 "${att.filename}" — correspond à une transaction manquante`,
+              sublabel: `${doc.fournisseur||''} — ${doc.montant_ttc}€ TTC`,
+              doc, filename: att.filename, targetMonthKey
+            });
+            logBanque(`✓ Trouvé: "${att.filename}" (${doc.montant_ttc}€)`, 'success');
+          }
+        } catch(e) {}
+      }
+    }
+
+    setThinkingBanque(false);
+
+    if (!foundActions.length) {
+      logBanque('Aucun document correspondant trouvé dans Gmail pour ces montants', 'info');
+      return;
+    }
+
+    window._banqueFoundActions = foundActions;
+    let reportDiv = document.getElementById('banqueFoundReport');
+    if (!reportDiv) {
+      reportDiv = document.createElement('div');
+      reportDiv.id = 'banqueFoundReport';
+      reportDiv.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-top:16px';
+      document.getElementById('banqueResults').appendChild(reportDiv);
+    }
+    reportDiv.innerHTML = `
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
+        <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent)">📋 Documents trouvés — ${foundActions.length}</span>
+      </div>
+      <div id="banqueFoundList">
+        ${foundActions.map(a => `
+          <div id="bqrow_${a.id}" style="display:grid;grid-template-columns:40px 1fr auto;gap:10px;padding:10px 20px;border-bottom:1px solid rgba(255,255,255,0.03);align-items:center">
+            <div><input type="checkbox" id="bqchk_${a.id}" checked style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)"></div>
+            <div><div style="font-size:12px;color:var(--text)">${a.label}</div><div style="font-size:10px;color:var(--muted);margin-top:2px">${a.sublabel}</div></div>
+            <button onclick="document.getElementById('bqrow_${a.id}').style.display='none'" style="background:none;border:none;color:var(--muted2);cursor:pointer;font-size:18px">×</button>
+          </div>`).join('')}
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border)">
+        <button class="btn-save" style="width:100%" onclick="validateBanqueFound()">✅ Ranger ces documents dans Drive & Excel</button>
+      </div>`;
+
+  } catch(err) {
     setThinkingBanque(false);
     logBanque(`Erreur: ${err.message}`, 'error');
   }
+}
+
+async function validateBanqueFound() {
+  const actions = window._banqueFoundActions || [];
+  let done = 0;
+  for (const a of actions) {
+    const chk = document.getElementById('bqchk_' + a.id);
+    if (!chk || !chk.checked) continue;
+    try {
+      const byteChars = atob(a.doc._b64);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const file = new File([byteArr], a.filename, { type: a.doc._mimeType || 'application/pdf' });
+      const type = a.doc.type_zone || 'prestataires';
+      const provider = type === 'intermittence' ? (a.doc.sous_dossier_drive || 'RC2B') : (a.doc.fournisseur || '');
+      await uploadToDriveIntelligent(file, type, a.targetMonthKey, provider);
+      if (a.doc.montant_ht || a.doc.montant_ttc) await writeToExcel(a.doc, type, a.targetMonthKey);
+      logBanque(`✅ "${a.filename}" rangé`, 'success');
+      document.getElementById('bqrow_' + a.id).style.display = 'none';
+      done++;
+    } catch(e) { logBanque(`Erreur "${a.filename}": ${e.message}`, 'error'); }
+  }
+  logBanque(`✅ ${done} document(s) rangé(s) !`, 'success');
 }
 </script>
 </body>
