@@ -1557,28 +1557,53 @@ async function processBanqueFile(fileList) {
     const raw = await callClaude([{
       role: 'user',
       content: [
-        { type: 'text', text: 'Analyse ce releve bancaire et extrait TOUTES les transactions (debits ET credits). Retourne UNIQUEMENT un JSON valide sans markdown: {transactions: [{date (YYYY-MM-DD), libelle, montant (negatif si debit, positif si credit), type ("debit"|"credit")}]}. Sois exhaustif, n omets aucune ligne. Garde les libelles courts (max 50 caracteres).' },
+        { type: 'text', text: 'Analyse ce releve bancaire et extrait TOUTES les transactions (debits ET credits). Retourne UNIQUEMENT un JSON valide sans markdown: {transactions: [{date (YYYY-MM-DD), libelle, montant (negatif si debit, positif si credit), type ("debit"|"credit")}]}. Sois exhaustif, n omets aucune ligne. Garde les libelles courts (max 40 caracteres) et SANS apostrophes ni guillemets (remplace les apostrophes par un espace).' },
         { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
       ]
-    }], 'Tu es comptable expert en lecture de releves bancaires francais. JSON valide uniquement, sans markdown, sans commentaire, sans texte explicatif. Le JSON doit etre complet et bien forme meme si tu dois raccourcir les libelles pour tenir dans la limite.', 8000);
+    }], 'Tu es comptable expert en lecture de releves bancaires francais. JSON valide uniquement, sans markdown, sans commentaire, sans texte explicatif. Le JSON doit etre complet et bien forme. IMPORTANT: dans les libelles, ne jamais utiliser de guillemets ou apostrophes (remplace-les par un espace ou rien) pour ne jamais casser le JSON.', 16000);
 
     const clean = raw.replace(/```json|```/g, '').trim();
     let data;
     try {
       data = JSON.parse(clean);
     } catch(parseErr) {
-      // Try to salvage partial JSON by finding the last complete transaction
-      const lastCompleteIdx = clean.lastIndexOf('},');
-      if (lastCompleteIdx > 0) {
-        const salvaged = clean.substring(0, lastCompleteIdx + 1) + ']}';
-        try {
+      logBanque(`⚠ JSON malformé (${parseErr.message}) — tentative de récupération…`, 'pending');
+      data = null;
+
+      // Strategy 1: truncate at last complete object before the break point and close array/object
+      try {
+        const lastCompleteIdx = clean.lastIndexOf('},');
+        if (lastCompleteIdx > 0) {
+          const salvaged = clean.substring(0, lastCompleteIdx + 1) + ']}';
           data = JSON.parse(salvaged);
-          logBanque('⚠ Relevé long — extraction partielle (certaines transactions en fin de relevé ont pu être omises)', 'pending');
-        } catch(e2) {
-          throw new Error('Le relevé est trop long pour être analysé en une fois. Essaie de le scinder en deux PDF plus courts.');
         }
+      } catch(e1) {}
+
+      // Strategy 2: regex-extract individual transaction objects directly, ignoring overall JSON validity
+      if (!data) {
+        try {
+          const txRegex = /\{\s*"date"\s*:\s*"([^"]*)"\s*,\s*"libelle"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"montant"\s*:\s*(-?[\d.]+)\s*,\s*"type"\s*:\s*"([^"]*)"\s*\}/g;
+          const transactions = [];
+          let m;
+          while ((m = txRegex.exec(clean)) !== null) {
+            transactions.push({
+              date: m[1],
+              libelle: m[2].replace(/\\"/g, '"'),
+              montant: parseFloat(m[3]),
+              type: m[4]
+            });
+          }
+          if (transactions.length) {
+            data = { transactions };
+            logBanque(`✓ Récupération par extraction directe — ${transactions.length} transaction(s) trouvée(s)`, 'success');
+          }
+        } catch(e2) {}
+      }
+
+      if (!data) {
+        throw new Error('Le relevé est trop long ou complexe pour être analysé en une fois. Essaie de le scinder en deux PDF plus courts (ex: 1ère quinzaine / 2ème quinzaine du mois).');
       } else {
-        throw new Error('Le relevé est trop long pour être analysé en une fois. Essaie de le scinder en deux PDF plus courts.');
+        logBanque('⚠ Extraction partielle — certaines transactions en fin de relevé ont pu être omises, vérifie le total', 'pending');
       }
     }
 
