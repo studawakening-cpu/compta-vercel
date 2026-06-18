@@ -326,6 +326,12 @@
 <!-- TAB AUDIT -->
 <div class="tab-panel" id="tab-audit">
 <main>
+  <div style="background:var(--surface);border:1px solid rgba(255,107,53,0.3);border-radius:16px;padding:24px;margin-bottom:20px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent2);margin-bottom:12px">🔧 Correction unique — En-têtes de colonnes</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Renomme les en-têtes Apr-25...Mar-26 en Apr-26...Mar-27 dans les onglets DEPENSES, DEPENSESCB et RECETTES. À faire une seule fois.</div>
+    <button class="btn-secondary" style="width:100%" onclick="fixColumnHeaders()">Corriger les en-têtes de colonnes</button>
+  </div>
+
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px">
     <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Analyse complète — Mails + Drive + Excel</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
@@ -1155,6 +1161,66 @@ function deselectAllGmail() {
   });
 }
 
+function getMonthKeyFromDate(dateStr) {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return null;
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const map = {
+      '2026-4':'1-AVRIL 04-26','2026-5':'2-MAI 05-26','2026-6':'3-JUIN 06-26',
+      '2026-7':'4-JUILLET 07-26','2026-8':'5-AOUT 08-26','2026-9':'6-SEPTEMBRE 09-26',
+      '2026-10':'7-OCTOBRE 10-26','2026-11':'8-NOVEMBRE 11-26','2026-12':'9-DECEMBRE 12-26',
+      '2027-1':'10-JANVIER 01-27','2027-2':'11-FEVRIER 02-27','2027-3':'12-MARS 03-27'
+    };
+    return map[`${y}-${m}`] || null;
+  } catch(e) { return null; }
+}
+
+async function fixColumnHeaders() {
+  if (!googleToken) { alert('Connecte ton compte Google d abord'); return; }
+  logAudit('Lecture des en-tetes actuelles…', 'pending');
+  setThinkingAudit(true);
+
+  const OLD_TO_NEW = {
+    'Apr-25':'Apr-26','May-25':'May-26','Jun-25':'Jun-26','Jul-25':'Jul-26',
+    'Aug-25':'Aug-26','Sep-25':'Sep-26','Oct-25':'Oct-26','Nov-25':'Nov-26',
+    'Dec-25':'Dec-26','Jan-26':'Jan-27','Feb-26':'Feb-27','Mar-26':'Mar-27'
+  };
+
+  try {
+    for (const sheetName of ['DEPENSES', 'DEPENSESCB', 'RECETTES']) {
+      logAudit(`Recherche des en-tetes dans ${sheetName}…`, 'pending');
+      const fullData = await driveAction('sheetsRead', { spreadsheetId: EXCEL_FILE_ID, range: `${sheetName}!A1:Z10` });
+      const rows = fullData.values || [];
+      let foundAny = false;
+      for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
+        const row = rows[rowIdx];
+        let changed = false;
+        const newRow = row.map(cell => {
+          if (OLD_TO_NEW[cell]) { changed = true; foundAny = true; return OLD_TO_NEW[cell]; }
+          return cell;
+        });
+        if (changed) {
+          await driveAction('sheetsUpdate', {
+            spreadsheetId: EXCEL_FILE_ID,
+            updateRange: `${sheetName}!A${rowIdx+1}:Z${rowIdx+1}`,
+            values: [newRow]
+          });
+          logAudit(`✅ Ligne ${rowIdx+1} de ${sheetName} corrigee (Apr-25→Apr-26 etc.)`, 'success');
+        }
+      }
+      if (!foundAny) logAudit(`ℹ Aucune en-tete a changer dans ${sheetName}`, 'info');
+    }
+
+    setThinkingAudit(false);
+    logAudit('✅ Correction terminee — verifie ton Excel !', 'success');
+  } catch(err) {
+    setThinkingAudit(false);
+    logAudit(`Erreur: ${err.message}`, 'error');
+  }
+}
 
 async function runAudit() {
   if (!googleToken) { logAudit('Connecte ton compte Google', 'error'); return; }
