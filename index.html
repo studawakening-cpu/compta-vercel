@@ -145,6 +145,7 @@
   <button class="tab-btn" onclick="switchTab('nf',this)">🧾 Note de Frais</button>
   <button class="tab-btn" onclick="switchTab('gmail',this)">📧 Scanner Gmail</button>
   <button class="tab-btn" onclick="switchTab('audit',this)">🔍 Vérifier Drive & Excel</button>
+  <button class="tab-btn" onclick="switchTab('banque',this)">🏦 Relevé Bancaire</button>
 </div>
 
 <!-- TAB DEPOT -->
@@ -380,6 +381,53 @@
     <div class="log-header"><span class="log-title">Journal</span></div>
     <div class="log-body" id="logAudit"><div class="log-empty">Lance une analyse…</div></div>
     <div class="thinking" id="thinkingAudit"><div class="thinking-dots"><span></span><span></span><span></span></div><span>Analyse en cours…</span></div>
+  </div>
+</main>
+</div>
+
+<!-- TAB BANQUE -->
+<div class="tab-panel" id="tab-banque">
+<main>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Rapprochement bancaire</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+      Dépose ton relevé de banque du mois. J'extrais chaque transaction, je la compare à ce qui existe déjà dans ton Drive et ton Excel, et je te montre ce qui est justifié et ce qui manque encore de pièce justificative.
+    </div>
+    <div class="month-row" style="margin-bottom:16px">
+      <span class="month-label">Mois</span>
+      <div class="month-pills" id="monthPillsBanque"></div>
+    </div>
+    <div class="nf-upload-zone" id="banque-drop-zone" onclick="document.getElementById('file-banque').click()" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="handleBanqueDrop(event)">
+      <div style="width:44px;height:44px;border-radius:12px;background:rgba(74,222,128,0.1);display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 12px">🏦</div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:var(--success);letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px">Déposer le relevé de banque (PDF)</div>
+      <div style="font-size:11px;color:var(--muted)">J'extrais toutes les transactions automatiquement</div>
+    </div>
+    <input type="file" id="file-banque" accept=".pdf" onchange="processBanqueFile(this.files)">
+  </div>
+
+  <!-- Résultats rapprochement -->
+  <div id="banqueResults" style="display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div style="background:var(--surface);border:1px solid rgba(74,222,128,0.3);border-radius:16px;padding:20px">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--success);margin-bottom:12px">✅ Justifiées</div>
+        <div id="banqueJustified" style="font-size:12px;line-height:1.8"></div>
+      </div>
+      <div style="background:var(--surface);border:1px solid rgba(251,191,36,0.3);border-radius:16px;padding:20px">
+        <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--warning);margin-bottom:12px">⚠ Sans justificatif</div>
+        <div id="banqueMissing" style="font-size:12px;line-height:1.8"></div>
+      </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid rgba(232,255,71,0.2);border-radius:16px;padding:20px">
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent);margin-bottom:12px">🤖 Synthèse</div>
+      <div id="banqueSynthese" style="font-size:12px;line-height:1.8;color:var(--text);white-space:pre-wrap"></div>
+    </div>
+  </div>
+
+  <div class="log-section" style="margin-top:16px">
+    <div class="progress-bar"><div class="progress-fill" id="progressBanque"></div></div>
+    <div class="log-header"><span class="log-title">Journal</span><button class="btn-clear" onclick="clearLogBanque()">Effacer</button></div>
+    <div class="log-body" id="logBanque"><div class="log-empty">Dépose un relevé pour commencer…</div></div>
+    <div class="thinking" id="thinkingBanque"><div class="thinking-dots"><span></span><span></span><span></span></div><span>Analyse en cours…</span></div>
   </div>
 </main>
 </div>
@@ -904,6 +952,10 @@ async function analyzeAll(){
 // ═══════════════════════════════════════
 let selectedMonthAudit = MONTHS[1];
 let selectedMonthGmail = MONTHS[1];
+let selectedMonthBanque = MONTHS[1];
+buildMonthPills('monthPillsAudit', selectedMonthAudit, m => selectedMonthAudit = m);
+buildMonthPills('monthPillsGmail', selectedMonthGmail, m => selectedMonthGmail = m);
+buildMonthPills('monthPillsBanque', selectedMonthBanque, m => selectedMonthBanque = m);
 
 function logGmail(msg, type='info') {
   const body = document.getElementById('logGmail');
@@ -1466,8 +1518,141 @@ function deselectAll() {
     if (chk) chk.checked = false;
   });
 }
+
+// ═══════════════════════════════════════
+// RAPPROCHEMENT BANCAIRE
+// ═══════════════════════════════════════
+function logBanque(msg, type='info') {
+  const body = document.getElementById('logBanque');
+  body.querySelector('.log-empty')?.remove();
+  const time = new Date().toTimeString().slice(0,8);
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
+  body.appendChild(entry);
+  body.scrollTop = body.scrollHeight;
+}
+function clearLogBanque() { document.getElementById('logBanque').innerHTML = '<div class="log-empty">Dépose un relevé pour commencer…</div>'; }
+function setProgressBanque(pct) { document.getElementById('progressBanque').style.width = pct + '%'; }
+function setThinkingBanque(v) { document.getElementById('thinkingBanque').className = 'thinking' + (v ? ' visible' : ''); }
+function handleBanqueDrop(e) { e.preventDefault(); document.getElementById('banque-drop-zone').classList.remove('drag-over'); processBanqueFile(e.dataTransfer.files); }
+
+async function processBanqueFile(fileList) {
+  if (!localStorage.getItem('sa_claude_key')) { logBanque('Renseigne ta cle API Claude dans l onglet Depot', 'error'); return; }
+  if (!googleToken) { logBanque('Connecte ton compte Google', 'error'); return; }
+
+  const file = fileList[0];
+  if (!file) return;
+
+  document.getElementById('banqueResults').style.display = 'none';
+  clearLogBanque();
+  setThinkingBanque(true);
+  setProgressBanque(10);
+  logBanque(`Lecture du relevé "${file.name}"…`, 'pending');
+
+  try {
+    const b64 = await toBase64(file);
+
+    // Step 1: Extract all transactions from bank statement
+    const raw = await callClaude([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Analyse ce releve bancaire et extrait TOUTES les transactions (debits ET credits). Retourne UNIQUEMENT un JSON valide sans markdown: {transactions: [{date (YYYY-MM-DD), libelle, montant (negatif si debit, positif si credit), type ("debit"|"credit")}]}. Sois exhaustif, n omets aucune ligne.' },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+      ]
+    }], 'Tu es comptable expert en lecture de releves bancaires francais. JSON valide uniquement, sans markdown, sans commentaire.');
+
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const data = JSON.parse(clean);
+    const transactions = (data.transactions || []).filter(t => t.montant < 0); // only expenses for now
+
+    logBanque(`${transactions.length} débit(s) trouvé(s) sur le relevé`, 'success');
+    setProgressBanque(30);
+
+    // Step 2: Get existing Drive files for this month
+    logBanque('Lecture du Drive…', 'pending');
+    const monthKey = selectedMonthBanque.key;
+    const driveFileNames = new Set();
+    for (const subfolder of Object.values(SUBFOLDER_MAP)) {
+      try {
+        const subId = await getSubfolderId(monthKey, subfolder);
+        const filesData = await driveAction('listFolders', { folderId: subId });
+        (filesData.files || []).forEach(f => driveFileNames.add(f.name.toLowerCase()));
+      } catch(e) {}
+    }
+    setProgressBanque(45);
+
+    // Step 3: Get Excel entries for this month
+    logBanque('Lecture de l Excel…', 'pending');
+    const col = MONTH_COL[monthKey];
+    const excelData = await driveAction('sheetsRead', { spreadsheetId: EXCEL_FILE_ID, range: `DEPENSES!C:${col}` });
+    const excelLibelles = (excelData.values || []).filter(r => r[0]).map(r => r[0].toLowerCase());
+    const cbData = await driveAction('sheetsRead', { spreadsheetId: EXCEL_FILE_ID, range: `DEPENSESCB!A:${col}` });
+    const cbLibelles = (cbData.values || []).filter(r => r[0]).map(r => r[0].toLowerCase());
+    const allExcelLibelles = [...excelLibelles, ...cbLibelles];
+    setProgressBanque(60);
+
+    // Step 4: Match each transaction against Excel/Drive
+    logBanque('Croisement des transactions…', 'pending');
+    const justified = [];
+    const missing = [];
+
+    for (const t of transactions) {
+      const tLibelle = (t.libelle || '').toLowerCase();
+      const tAmount = Math.abs(t.montant);
+
+      // Check if matched in Excel (by partial name match)
+      const matchedInExcel = allExcelLibelles.some(lib => {
+        const words = tLibelle.split(/\s+/).filter(w => w.length > 3);
+        return words.some(w => lib.includes(w)) || lib.split(/\s+/).some(w => w.length > 3 && tLibelle.includes(w));
+      });
+
+      if (matchedInExcel) {
+        justified.push(t);
+      } else {
+        missing.push(t);
+      }
+    }
+
+    setProgressBanque(80);
+    logBanque(`✓ ${justified.length} transaction(s) déjà justifiée(s), ${missing.length} sans justificatif clair`, 'success');
+
+    // Step 5: Claude synthesis with recommendations
+    const summary = `Mois: ${selectedMonthBanque.label}
+Total transactions débit relevé: ${transactions.length}
+Justifiées (trouvées dans Excel): ${justified.length}
+Sans justificatif clair: ${missing.length}
+
+Transactions SANS justificatif:
+${missing.slice(0,25).map(t => `- ${t.date}: ${t.libelle} — ${Math.abs(t.montant)}€`).join('\n')}`;
+
+    const synthese = await callClaude([{
+      role: 'user',
+      content: `Tu es expert-comptable de STUDIO AWAKENING. Analyse ce rapprochement bancaire et donne une synthese claire en francais: 1) Combien de depenses manquent de justificatif 2) Lesquelles semblent prioritaires a retrouver (montants importants, recurrentes) 3) Conseils pour retrouver les tickets/factures manquants (chercher dans mails, demander au fournisseur, etc). Sois concret et actionnable.\n\n${summary}`
+    }], 'Tu es expert-comptable. Sois bref et concret.');
+
+    // Display results
+    document.getElementById('banqueJustified').innerHTML = justified.length
+      ? justified.slice(0,30).map(t => `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:var(--success)">✓</span> ${t.date} — ${t.libelle} <span style="color:var(--muted)">(${Math.abs(t.montant)}€)</span></div>`).join('')
+      : '<div style="color:var(--muted2)">Aucune transaction justifiée trouvée</div>';
+
+    document.getElementById('banqueMissing').innerHTML = missing.length
+      ? missing.map(t => `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)"><span style="color:var(--warning)">⚠</span> ${t.date} — ${t.libelle} <span style="color:var(--accent)">(${Math.abs(t.montant)}€)</span></div>`).join('')
+      : '<div style="color:var(--success)">✅ Toutes les dépenses sont justifiées !</div>';
+
+    document.getElementById('banqueSynthese').textContent = synthese;
+    document.getElementById('banqueResults').style.display = 'block';
+
+    setProgressBanque(100);
+    setThinkingBanque(false);
+    logBanque('✅ Rapprochement terminé', 'success');
+    setTimeout(() => setProgressBanque(0), 2000);
+
+  } catch (err) {
+    setThinkingBanque(false);
+    logBanque(`Erreur: ${err.message}`, 'error');
+  }
+}
 </script>
 </body>
 </html>
-<!-- build Mon Jun 15 11:52:36 UTC 2026 -->
-<!-- Mon Jun 15 12:46:07 UTC 2026 -->
