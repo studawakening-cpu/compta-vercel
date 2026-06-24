@@ -1780,7 +1780,52 @@ async function validateBanqueFound() {
 // CLAUDE CHAT TAB
 // ═══════════════════════════════════════════════════════
 let claudeChatHistory = [];
-let claudeChatAttachments = []; // [{name, b64, mimeType}]
+let claudeChatAttachments = [];
+
+// Load saved history on startup
+function loadChatHistory() {
+  try {
+    const saved = localStorage.getItem('sa_chat_history');
+    if (!saved) return;
+    const { history, messages } = JSON.parse(saved);
+    claudeChatHistory = history || [];
+    // Restore displayed messages
+    const wrap = document.getElementById('claudeChatMessages');
+    if (wrap && messages) {
+      messages.forEach(m => {
+        const outer = document.createElement('div');
+        const isUser = m.role === 'user';
+        outer.style.cssText = 'display:flex;flex-direction:column;align-items:' + (isUser ? 'flex-end' : 'flex-start') + ';margin-bottom:4px';
+        const bubble = document.createElement('div');
+        bubble.style.cssText = 'max-width:90%;background:' + (isUser ? 'rgba(232,255,71,0.1)' : 'var(--surface)') + ';border:1px solid ' + (isUser ? 'rgba(232,255,71,0.2)' : 'var(--border)') + ';border-radius:14px;padding:12px 16px;font-size:13px;color:var(--text);line-height:1.7';
+        bubble.innerHTML = m.html;
+        outer.appendChild(bubble);
+        wrap.appendChild(outer);
+      });
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+  } catch(e) {}
+}
+
+function saveChatHistory() {
+  try {
+    // Save only the last 50 API messages and last 100 display messages
+    const wrap = document.getElementById('claudeChatMessages');
+    const displayMsgs = [];
+    if (wrap) {
+      wrap.querySelectorAll('div > div').forEach(bubble => {
+        const isUser = bubble.style.background.includes('232,255,71');
+        displayMsgs.push({ role: isUser ? 'user' : 'assistant', html: bubble.innerHTML });
+      });
+    }
+    localStorage.setItem('sa_chat_history', JSON.stringify({
+      history: claudeChatHistory.slice(-50),
+      messages: displayMsgs.slice(-100)
+    }));
+  } catch(e) {}
+}
+
+document.addEventListener('DOMContentLoaded', loadChatHistory); // [{name, b64, mimeType}]
 
 function addChatFiles(fileList) {
   Array.from(fileList).forEach(async file => {
@@ -1907,6 +1952,7 @@ Réponds en français. Sois concis et direct.`;
     }
 
     claudeChatHistory.push({ role: 'assistant', content: reply });
+    saveChatHistory();
 
     // Display message
     const msgDiv = appendChatMsg('assistant', displayText);
@@ -1941,10 +1987,12 @@ Réponds en français. Sois concis et direct.`;
 function clearClaudeChat() {
   claudeChatHistory = [];
   claudeChatAttachments = [];
+  window._chatActions = {};
   document.getElementById('claudeChatMessages').innerHTML = '';
   document.getElementById('claudeChatFileList').innerHTML = '';
   document.getElementById('claudeChatFiles').style.display = 'none';
   document.getElementById('claudeChatInput').value = '';
+  localStorage.removeItem('sa_chat_history');
 }
 </script>
 </body>
