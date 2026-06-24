@@ -877,14 +877,22 @@ async function getOrCreateSubfolder(parentId, name) {
 
 // CB subfolder routing — maps document keywords to subfolders in CARTE BLEUE ENTREPRISE
 const CB_SUBFOLDER_RULES = [
-  { keywords: ['mcdonald','burger','restaurant','brasserie','cafe','bistro','carpe diem','krispy','pizza','sushi','resto','repas','dejeuner','diner','snack','kebab','paul','brioche','subway'], folder: 'TICKET DE CAISSE DIVERS' },
-  { keywords: ['sncf','tgv','train','ouigo','intercites','ter '], folder: 'TRAINS' },
-  { keywords: ['restream','streaming','logiciel','software','abonnement','saas','adobe','microsoft','google','amazon','spotify'], folder: 'RESTREAM' },
-  { keywords: ['cable','sdi','hdmi','xlr','connecteur','adaptateur','mat','audio','video'], folder: 'CABLE SDI' },
+  // Restauration / repas
+  { keywords: ['mcdonald','burger king','quick','kfc','five guys','restaurant','brasserie','cafe','bistro','carpe diem','krispy','pizza','sushi','resto','repas','dejeuner','diner','snack','kebab','paul','brioche','subway','starbucks','columbus','lunch','bar ','taverne','auberge','trattoria'], folder: 'RESTAURATION' },
+  // Trains / transports
+  { keywords: ['sncf','tgv','ouigo','ter ','intercites','transilien','trenitalia','eurostar','thalys','izy','blablacar','flixbus','bus','metro','rer ','navigo','vélib','taxi','uber','bolt','heetch','vtc'], folder: 'TRAINS' },
+  // Tickets divers / petits achats
+  { keywords: ['ticket','caisse','boulangerie','supermarche','monoprix','franprix','carrefour','leclerc','lidl','aldi','intermarche','casino','g20','picard','pharmacie','parapharmacie','droguerie','tabac','presse','librairie'], folder: 'TICKET DE CAISSE DIVERS' },
+  // Matériel / équipement technique
+  { keywords: ['cable','sdi','hdmi','xlr','connecteur','adaptateur','micro','camera','objectif','trepied','batterie','chargeur','rack','switch','routeur','disque','ssd','carte sd','gopro','drone','steadicam','cage','monitor'], folder: 'CABLE SDI' },
+  // Logiciels / abonnements numériques
+  { keywords: ['restream','streamyard','ecamm','wirecast','obs','zoom','teams','slack','notion','adobe','frame.io','dropbox','wetransfer','vimeo','youtube premium','spotify','deezer','claude','anthropic','openai','chatgpt','midjourney','figma','canva'], folder: 'RESTREAM' },
+  // Courchevel / événements spécifiques
+  { keywords: ['courchevel','courch','meribel','les arcs','la plagne','val d','station','ski','montagne'], folder: 'TICKETS COURCH' },
 ];
 
 function getCBSubfolder(doc) {
-  const haystack = ((doc.libelle || '') + ' ' + (doc.fournisseur || '')).toLowerCase();
+  const haystack = ((doc.libelle || '') + ' ' + (doc.fournisseur || '') + ' ' + (doc.categorie_excel || '')).toLowerCase();
   for (const rule of CB_SUBFOLDER_RULES) {
     if (rule.keywords.some(k => haystack.includes(k))) return rule.folder;
   }
@@ -2048,7 +2056,16 @@ Excel (Google Sheets natif ID: 1xtS50beperDhBbUtH7MRm7NO5vt6HR15I8mmOp8s0NU):
 - RECETTES = factures clients
 - Colonnes: D=Avr26, E=Mai26, F=Jun26, G=Jul26, H=Aou26, I=Sep26, J=Oct26, K=Nov26, L=Dec26, M=Jan27, N=Fev27, O=Mar27
 Drive racine: 1VUAwupB9VmrlmnA_tZTV1BkvwiUhztcf — 12 dossiers mensuels (1-AVRIL 04-26 à 12-MARS 03-27)
-Chaque mois: CARTE BLEUE ENTREPRISE / FACTURES PRESTATAIRES / FACTURES CLIENTS / NOTE DE FRAIS / INTERMITTENCE (RC2B+STUD) / LOYER BUREAU / RELEVE DE BANQUE
+Structure de chaque mois:
+- CARTE BLEUE ENTREPRISE → sous-dossiers: RESTAURATION (repas/restos), TRAINS (sncf/ouigo/transport), TICKET DE CAISSE DIVERS (supermarchés/pharmacies/divers), CABLE SDI (matériel technique), RESTREAM (logiciels/abonnements numériques), TICKETS COURCH (événements Courchevel)
+- FACTURES PRESTATAIRES → sous-dossier par prestataire (RAKUTEN, ORUS RC PRO, nom fournisseur...)
+- FACTURES CLIENTS → sous-dossier par client
+- NOTE DE FRAIS
+- INTERMITTENCE → RC2B (URSSAF/AUDIENS/FRANCE TRAVAIL/organismes) ou STUD (feuilles de service Studio Awakening)
+- LOYER BUREAUX
+- RELEVE DE BANQUE
+- COMPTA
+- STAGE (stagiaires)
 TVA: 20% standard, 10% restauration/travaux, 5.5% alimentaire, 0% médical/exonéré.
 Banque: Société Générale Jazz Pro — frais auto non justifiables (jazz pro, cotis tenue de compte, etc.)
 Garcin = dirigeant, statut intermittent du spectacle, heures SAS ne comptent pas pour ce statut.
