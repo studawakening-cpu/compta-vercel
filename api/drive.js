@@ -65,6 +65,21 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(await r.json());
     }
 
+    if (action === 'copyAsSheets') {
+      // Copy xlsx as native Google Sheets
+      const { fileId, fileName, parentId } = req.body;
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/copy`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: fileName,
+          parents: parentId ? [parentId] : undefined,
+          mimeType: 'application/vnd.google-apps.spreadsheet'
+        })
+      });
+      return res.status(200).json(await r.json());
+    }
+
     return res.status(400).json({ error: 'Action inconnue' });
   } catch (err) {
     return res.status(500).json({ error: err.message });

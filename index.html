@@ -377,6 +377,7 @@
       <div class="month-pills" id="monthPillsAudit"></div>
     </div>
     <button class="btn-save" style="width:100%" onclick="runAudit()">🔍 Analyser & trouver les manquants</button>
+    <button class="btn-secondary" style="width:100%;margin-top:8px" onclick="convertExcelToSheets()">🔄 Convertir Excel → Google Sheets (à faire une fois)</button>
   </div>
 
   <!-- Étape 1 : ce que j'ai trouvé dans les mails -->
@@ -734,7 +735,11 @@ async function generateNF(){
 // GOOGLE OAUTH + DRIVE + SHEETS
 // ═══════════════════════════════════════
 const COMPTA_FOLDER_ID = '1VUAwupB9VmrlmnA_tZTV1BkvwiUhztcf';
-const EXCEL_FILE_ID = '1o2kKdMX-N5IUa-321Yr3ZdIEOAv9MQzQ'; // Tableau de bord 2026-27
+const EXCEL_FILE_ID_BASE = '1EOwILEU7-S4u7xCNHNdI76MxXmV3PYyh'; // xlsx original
+// Use converted Google Sheets version if available (set after convertExcelToSheets())
+function getExcelId() { return localStorage.getItem('sa_sheets_id') || window.EXCEL_FILE_ID_OVERRIDE || EXCEL_FILE_ID_BASE; }
+// Backward compat
+const EXCEL_FILE_ID = EXCEL_FILE_ID_BASE;
 
 const MONTH_FOLDER_IDS = {
   '1-AVRIL 04-26':     '1cLbr0K87HJwYz1w5C2zKxhpLNtXlYZXm',
@@ -920,7 +925,7 @@ async function writeToExcel(doc, type, monthKey) {
   if (type === 'tickets') {
     // Append new row to DEPENSESCB
     await driveAction('sheetsAppend', {
-      spreadsheetId: EXCEL_FILE_ID,
+      spreadsheetId: getExcelId(),
       range: `DEPENSESCB!A:O`,
       values: [[doc.libelle || '', doc.montant_ttc || 0, doc.montant_ht || 0, doc.tva || 0, 
                 ...['D','E','F','G','H','I','J','K','L','M','N','O'].map(c => c === col ? (doc.montant_ht || 0) : '')]]
@@ -930,7 +935,7 @@ async function writeToExcel(doc, type, monthKey) {
 
   // For DEPENSES: find existing row by name and update the right column
   const sheetData = await driveAction('sheetsRead', {
-    spreadsheetId: EXCEL_FILE_ID,
+    spreadsheetId: getExcelId(),
     range: `DEPENSES!C:O`
   });
   
@@ -952,7 +957,7 @@ async function writeToExcel(doc, type, monthKey) {
     const colOffset = ['D','E','F','G','H','I','J','K','L','M','N','O'].indexOf(col);
     const targetRange = `DEPENSES!${col}${rowIndex}`;
     await driveAction('sheetsUpdate', {
-      spreadsheetId: EXCEL_FILE_ID,
+      spreadsheetId: getExcelId(),
       updateRange: targetRange,
       values: [[doc.montant_ht || 0]]
     });
@@ -960,7 +965,7 @@ async function writeToExcel(doc, type, monthKey) {
   } else {
     // Append new row
     await driveAction('sheetsAppend', {
-      spreadsheetId: EXCEL_FILE_ID,
+      spreadsheetId: getExcelId(),
       range: `DEPENSES!C:O`,
       values: [[doc.libelle || '', doc.montant_ttc || '', doc.montant_ht || '', 
                 ...['D','E','F','G','H','I','J','K','L','M','N','O'].map(c => c === col ? (doc.montant_ht || 0) : '')]]
@@ -982,7 +987,7 @@ async function uploadToDrive(file, type, monthKey) {
 
 async function appendToSheets(sheetName, values) {
   return driveAction('sheetsAppend', {
-    spreadsheetId: EXCEL_FILE_ID,
+    spreadsheetId: getExcelId(),
     range: `${sheetName}!A:Z`,
     values
   });
@@ -1320,7 +1325,32 @@ function deselectAllGmail() {
 }
 
 
-async function runAudit() {
+async function convertExcelToSheets() {
+  if (!googleToken) { alert('Connecte Google d\'abord'); return; }
+  logAudit('Conversion du fichier Excel en Google Sheets natif…', 'pending');
+  setThinkingAudit(true);
+  try {
+    const result = await driveAction('copyAsSheets', {
+      fileId: EXCEL_FILE_ID,
+      fileName: 'TABLEAU DE BORD 2026-2027 (Sheets)',
+      parentId: '1VUAwupB9VmrlmnA_tZTV1BkvwiUhztcf'
+    });
+    if (!result.id) throw new Error('Conversion échouée: ' + JSON.stringify(result));
+    
+    // Save new ID to localStorage so it persists
+    localStorage.setItem('sa_sheets_id', result.id);
+    logAudit('✅ Converti ! Nouveau ID: ' + result.id, 'success');
+    logAudit('ℹ Le site utilise maintenant ce fichier Google Sheets natif', 'info');
+    
+    // Update EXCEL_FILE_ID in memory
+    window.EXCEL_FILE_ID_OVERRIDE = result.id;
+    setThinkingAudit(false);
+    alert('✅ Conversion réussie !\nNouveau fichier: TABLEAU DE BORD 2026-2027 (Sheets)\nID: ' + result.id + '\n\nLe site utilise maintenant ce fichier. Copie cet ID si tu veux le noter.');
+  } catch(e) {
+    setThinkingAudit(false);
+    logAudit('Erreur conversion: ' + e.message, 'error');
+  }
+}
   if (!googleToken) { logAudit('Connecte ton compte Google', 'error'); return; }
   if (!localStorage.getItem('sa_claude_key')) { logAudit('Renseigne ta cle API Claude', 'error'); return; }
 
@@ -1379,9 +1409,9 @@ async function runAudit() {
     // STEP 3: Get Excel entries
     logAudit('Lecture de l Excel…', 'pending');
     const col = MONTH_COL[monthKey];
-    const excelData = await driveAction('sheetsRead', { spreadsheetId: EXCEL_FILE_ID, range: `DEPENSES!C:${col}` });
+    const excelData = await driveAction('sheetsRead', { spreadsheetId: getExcelId(), range: `DEPENSES!C:${col}` });
     const excelEntries = new Set((excelData.values || []).filter(r => r[0] && r[r.length-1] && parseFloat((r[r.length-1]||'').replace(/[^0-9.]/g,'')) > 0).map(r => r[0].toLowerCase().trim()));
-    const cbData = await driveAction('sheetsRead', { spreadsheetId: EXCEL_FILE_ID, range: `DEPENSESCB!A:${col}` });
+    const cbData = await driveAction('sheetsRead', { spreadsheetId: getExcelId(), range: `DEPENSESCB!A:${col}` });
     const cbEntries = (cbData.values || []).filter(r => r[0] && r[r.length-1]).map(r => r[0].toLowerCase().trim());
     setProgressAudit(50);
 
