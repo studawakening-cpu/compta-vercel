@@ -1822,25 +1822,29 @@ function appendChatMsg(role, html, isLoading) {
   return outer;
 }
 
-async function executeChatDocs(docsJson) {
-  const docs = JSON.parse(docsJson);
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '⏳ En cours…';
+async function executeChatDocs(actionId) {
+  const docs = window._chatActions && window._chatActions[actionId];
+  if (!docs || !docs.length) { appendChatMsg('assistant', '⚠ Données introuvables, réessaie.'); return; }
+
+  const btn = document.getElementById('chatbtn_' + actionId);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
+
   let done = 0;
   for (const doc of docs) {
     try {
       const type = doc.type_zone || 'tickets';
-      const mk = getMonthKeyFromDate(doc.date) || MONTHS[2].key; // default Juin 26
+      const mk = getMonthKeyFromDate(doc.date) || MONTHS[2].key;
       await writeToExcel(doc, type, mk);
-      appendChatMsg('assistant', '✅ Excel: <b>' + (doc.libelle || doc.fournisseur) + '</b> — ' + doc.montant_ht + '€ HT col ' + (MONTH_COL[mk] || '?'));
+      appendChatMsg('assistant', '✅ ' + (doc.libelle || doc.fournisseur) + ' — ' + doc.montant_ht + '€ HT → Excel col ' + (MONTH_COL[mk] || '?'));
       done++;
     } catch(e) {
-      appendChatMsg('assistant', '⚠ Erreur "' + (doc.fournisseur||'') + '": ' + e.message);
+      appendChatMsg('assistant', '⚠ Erreur "' + (doc.fournisseur||'doc') + '": ' + e.message);
     }
   }
-  btn.parentElement.innerHTML = '✅ ' + done + ' ligne(s) saisie(s) dans Excel !';
-  btn.parentElement.style.color = 'var(--success)';
+
+  const area = document.getElementById('chataction_' + actionId);
+  if (area) area.innerHTML = '<span style="color:var(--success)">✅ ' + done + ' ligne(s) saisie(s) dans Excel !</span>';
+  delete window._chatActions[actionId];
 }
 
 async function sendClaudeChat() {
@@ -1909,13 +1913,22 @@ Réponds en français. Sois concis et direct.`;
 
     // If we got structured data, add an action button
     if (docs && docs.documents && docs.documents.length) {
-      const docsJson = JSON.stringify(docs.documents).replace(/'/g, "\\'");
+      if (!window._chatActions) window._chatActions = {};
+      const actionId = 'a' + Date.now();
+      window._chatActions[actionId] = docs.documents;
+
       const bubble = msgDiv.querySelector('div');
       const actionArea = document.createElement('div');
+      actionArea.id = 'chataction_' + actionId;
       actionArea.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid var(--border)';
-      actionArea.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + docs.documents.length + ' ligne(s) prête(s) à saisir dans Excel :</div>'
-        + docs.documents.map(d => '<div style="font-size:11px;color:var(--text);margin-bottom:3px">• ' + (d.libelle||d.fournisseur) + ' — ' + d.montant_ttc + '€ TTC (' + d.date + ')</div>').join('')
-        + '<button onclick="executeChatDocs(\'' + JSON.stringify(docs.documents).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"') + '\')" style="margin-top:10px;background:var(--accent);color:#000;border:none;border-radius:10px;padding:8px 18px;font-family:\'Syne\',sans-serif;font-weight:700;font-size:12px;cursor:pointer;width:100%">✅ Valider et saisir dans Excel</button>';
+      actionArea.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'
+        + docs.documents.length + ' ligne(s) prête(s) :</div>'
+        + docs.documents.map(d => '<div style="font-size:11px;color:var(--text);margin-bottom:2px">• '
+          + (d.libelle || d.fournisseur) + ' — ' + d.montant_ttc + '€ TTC (' + d.date + ')</div>').join('')
+        + '<button id="chatbtn_' + actionId + '" onclick="executeChatDocs(\'' + actionId + '\')" '
+        + 'style="margin-top:8px;background:var(--accent);color:#000;border:none;border-radius:10px;'
+        + 'padding:8px 18px;font-family:\'Syne\',sans-serif;font-weight:700;font-size:12px;cursor:pointer;width:100%">'
+        + '✅ Valider et saisir dans Excel</button>';
       if (bubble) bubble.appendChild(actionArea);
     }
 
