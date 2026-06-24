@@ -1351,6 +1351,8 @@ async function convertExcelToSheets() {
     logAudit('Erreur conversion: ' + e.message, 'error');
   }
 }
+
+async function runAudit() {
   if (!googleToken) { logAudit('Connecte ton compte Google', 'error'); return; }
   if (!localStorage.getItem('sa_claude_key')) { logAudit('Renseigne ta cle API Claude', 'error'); return; }
 
