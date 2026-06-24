@@ -875,32 +875,63 @@ async function getOrCreateSubfolder(parentId, name) {
   return created.id;
 }
 
-async function uploadToDriveIntelligent(file, type, monthKey, providerName) {
+// CB subfolder routing — maps document keywords to subfolders in CARTE BLEUE ENTREPRISE
+const CB_SUBFOLDER_RULES = [
+  { keywords: ['mcdonald','burger','restaurant','brasserie','cafe','bistro','carpe diem','krispy','pizza','sushi','resto','repas','dejeuner','diner','snack','kebab','paul','brioche','subway'], folder: 'TICKET DE CAISSE DIVERS' },
+  { keywords: ['sncf','tgv','train','ouigo','intercites','ter '], folder: 'TRAINS' },
+  { keywords: ['restream','streaming','logiciel','software','abonnement','saas','adobe','microsoft','google','amazon','spotify'], folder: 'RESTREAM' },
+  { keywords: ['cable','sdi','hdmi','xlr','connecteur','adaptateur','mat','audio','video'], folder: 'CABLE SDI' },
+];
+
+function getCBSubfolder(doc) {
+  const haystack = ((doc.libelle || '') + ' ' + (doc.fournisseur || '')).toLowerCase();
+  for (const rule of CB_SUBFOLDER_RULES) {
+    if (rule.keywords.some(k => haystack.includes(k))) return rule.folder;
+  }
+  return 'TICKET DE CAISSE DIVERS'; // default
+}
+
+async function uploadToDriveIntelligent(file, type, monthKey, providerName, retries = 2) {
   const subfolder = SUBFOLDER_MAP[type];
   const monthFolderId = MONTH_FOLDER_IDS[monthKey];
   if (!monthFolderId) throw new Error(`Dossier mois introuvable: ${monthKey}`);
-  
-  // Get or create main subfolder (ex: FACTURES PRESTATAIRES)
-  const subFolderId = await getSubfolderId(monthKey, subfolder);
-  
-  // Create smart subfolders based on type
-  let targetFolderId = subFolderId;
-  if ((type === 'prestataires' || type === 'clients') && providerName) {
-    // Prestataires/clients: create provider subfolder
-    targetFolderId = await getOrCreateSubfolder(subFolderId, providerName.toUpperCase());
-  } else if (type === 'intermittence') {
-    // Intermittence: create RC2B or STUD subfolder based on document type
-    const subDir = providerName === 'STUD' ? 'STUD' : 'RC2B';
-    targetFolderId = await getOrCreateSubfolder(subFolderId, subDir);
+
+  let lastError;
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      const subFolderId = await getSubfolderId(monthKey, subfolder);
+      let targetFolderId = subFolderId;
+
+      if (type === 'tickets') {
+        // CB tickets: route to smart subfolder (TICKET DE CAISSE DIVERS, TRAINS, etc.)
+        const cbSub = providerName || getCBSubfolder({ fournisseur: file.name });
+        targetFolderId = await getOrCreateSubfolder(subFolderId, cbSub);
+      } else if (type === 'prestataires' || type === 'clients') {
+        if (providerName) targetFolderId = await getOrCreateSubfolder(subFolderId, providerName.toUpperCase());
+      } else if (type === 'intermittence') {
+        const subDir = providerName === 'STUD' ? 'STUD' : 'RC2B';
+        targetFolderId = await getOrCreateSubfolder(subFolderId, subDir);
+      }
+
+      const b64 = await toBase64(file);
+      const result = await driveAction('upload', {
+        folderId: targetFolderId,
+        fileName: file.name,
+        fileContent: b64,
+        mimeType: file.type || 'application/pdf'
+      });
+      return result; // success
+
+    } catch(e) {
+      lastError = e;
+      if (attempt <= retries) {
+        // Retry: try to refresh token first
+        await refreshGoogleToken().catch(() => {});
+        await new Promise(r => setTimeout(r, 1000 * attempt)); // wait 1s then 2s
+      }
+    }
   }
-  
-  const b64 = await toBase64(file);
-  return driveAction('upload', {
-    folderId: targetFolderId,
-    fileName: file.name,
-    fileContent: b64,
-    mimeType: file.type || 'application/pdf'
-  });
+  throw lastError;
 }
 
 // Month column mapping for new fiscal year 2026-27
@@ -1951,11 +1982,14 @@ async function executeChatDocs(actionId) {
           const byteArr = new Uint8Array(byteChars.length);
           for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
           const file = new File([byteArr], att.name, { type: att.mimeType || 'application/pdf' });
-          const prov = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
+          // For tickets CB, use smart subfolder detection
+          const prov = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B')
+                     : type === 'tickets' ? getCBSubfolder(doc)
+                     : (doc.fournisseur || '');
           await uploadToDriveIntelligent(file, type, mk, prov);
-          appendChatMsg('assistant', '📁 Drive: "' + att.name + '" rangé dans ' + mk);
+          appendChatMsg('assistant', '📁 Drive: "' + att.name + '" → ' + prov);
         } catch(driveErr) {
-          appendChatMsg('assistant', '⚠ Drive: ' + driveErr.message);
+          appendChatMsg('assistant', '⚠ Drive échoué après 3 tentatives: ' + driveErr.message);
         }
       }
 
