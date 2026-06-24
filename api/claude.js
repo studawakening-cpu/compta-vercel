@@ -11,7 +11,11 @@ module.exports = async function handler(req, res) {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
       body: JSON.stringify(req.body)
     });
     const data = await response.json();
@@ -21,5 +25,10 @@ module.exports = async function handler(req, res) {
   }
 };
 
-// Increase Vercel body size limit to 50MB for PDF base64
-module.exports.config = { api: { bodyParser: { sizeLimit: '50mb' } } };
+module.exports.config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb'
+    }
+  }
+};
