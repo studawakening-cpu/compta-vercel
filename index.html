@@ -1874,13 +1874,28 @@ async function executeChatDocs(actionId) {
   const btn = document.getElementById('chatbtn_' + actionId);
   if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
 
+  function monthKeyFromDate(dateStr) {
+    if (!dateStr) return null;
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d)) return null;
+      const map = {
+        '2026-4':'1-AVRIL 04-26','2026-5':'2-MAI 05-26','2026-6':'3-JUIN 06-26',
+        '2026-7':'4-JUILLET 07-26','2026-8':'5-AOUT 08-26','2026-9':'6-SEPTEMBRE 09-26',
+        '2026-10':'7-OCTOBRE 10-26','2026-11':'8-NOVEMBRE 11-26','2026-12':'9-DECEMBRE 12-26',
+        '2027-1':'10-JANVIER 01-27','2027-2':'11-FEVRIER 02-27','2027-3':'12-MARS 03-27'
+      };
+      return map[d.getFullYear() + '-' + (d.getMonth()+1)] || null;
+    } catch(e) { return null; }
+  }
+
   let done = 0;
   for (const doc of docs) {
     try {
       const type = doc.type_zone || 'tickets';
-      const mk = getMonthKeyFromDate(doc.date) || MONTHS[2].key;
+      const mk = monthKeyFromDate(doc.date) || MONTHS[2].key;
       await writeToExcel(doc, type, mk);
-      appendChatMsg('assistant', '✅ ' + (doc.libelle || doc.fournisseur) + ' — ' + doc.montant_ht + '€ HT → Excel col ' + (MONTH_COL[mk] || '?'));
+      appendChatMsg('assistant', '✅ ' + (doc.libelle || doc.fournisseur) + ' — ' + doc.montant_ht + '€ HT → col ' + (MONTH_COL[mk] || '?'));
       done++;
     } catch(e) {
       appendChatMsg('assistant', '⚠ Erreur "' + (doc.fournisseur||'doc') + '": ' + e.message);
