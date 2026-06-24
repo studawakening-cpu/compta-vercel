@@ -146,6 +146,7 @@
   <button class="tab-btn" onclick="switchTab('gmail',this)">📧 Scanner Gmail</button>
   <button class="tab-btn" onclick="switchTab('audit',this)">🔍 Vérifier Drive & Excel</button>
   <button class="tab-btn" onclick="switchTab('banque',this)">🏦 Relevé Bancaire</button>
+  <button class="tab-btn" style="background:rgba(232,255,71,0.1);border-color:rgba(232,255,71,0.3);color:var(--accent)" onclick="switchTab('claudechat',this)">✦ Claude</button>
 </div>
 
 <!-- TAB DEPOT -->
@@ -458,6 +459,38 @@
     <div class="log-header"><span class="log-title">Journal</span><button class="btn-clear" onclick="clearLogBanque()">Effacer</button></div>
     <div class="log-body" id="logBanque"><div class="log-empty">Dépose un relevé pour commencer…</div></div>
     <div class="thinking" id="thinkingBanque"><div class="thinking-dots"><span></span><span></span><span></span></div><span>Analyse en cours…</span></div>
+  </div>
+</main>
+</div>
+
+<!-- TAB CLAUDE CHAT -->
+<div class="tab-panel" id="tab-claudechat">
+<main>
+  <div style="background:var(--surface);border:1px solid rgba(232,255,71,0.2);border-radius:16px;padding:20px;margin-bottom:16px">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent);margin-bottom:6px">✦ Assistant comptable</div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.6">Glisse tes documents ici et parle-moi directement. Je lis tes tickets, factures, relevés — et je range tout dans Drive et Excel.</div>
+  </div>
+
+  <!-- Messages -->
+  <div id="claudeChatMessages" style="min-height:300px;max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:16px;padding:4px"></div>
+
+  <!-- Fichiers joints -->
+  <div id="claudeChatFiles" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px">
+    <div style="font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Fichiers joints</div>
+    <div id="claudeChatFileList" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+  </div>
+
+  <!-- Input -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden">
+    <textarea id="claudeChatInput" placeholder="Dis-moi ce que tu veux faire… ex: 'Voilà mes tickets de juin, range-les dans Drive et Excel'" style="width:100%;background:none;border:none;padding:16px;font-size:13px;color:var(--text);font-family:inherit;resize:none;min-height:80px;outline:none;box-sizing:border-box" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendClaudeChat();}"></textarea>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border)">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button onclick="document.getElementById('claudeChatFileInput').click()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--muted);cursor:pointer;font-size:12px">📎 Joindre</button>
+        <input type="file" id="claudeChatFileInput" multiple accept=".pdf,image/*" style="display:none" onchange="addChatFiles(this.files)">
+        <button onclick="clearClaudeChat()" style="background:none;border:none;color:var(--muted2);cursor:pointer;font-size:12px">Effacer</button>
+      </div>
+      <button onclick="sendClaudeChat()" style="background:var(--accent);color:#000;border:none;border-radius:10px;padding:8px 20px;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;cursor:pointer;letter-spacing:0.05em">Envoyer ↵</button>
+    </div>
   </div>
 </main>
 </div>
@@ -1719,6 +1752,131 @@ async function validateBanqueFound() {
   logBanque('\u2705 '+done+' document(s) rang\u00e9(s) !', 'success');
 }
 
+// ═══════════════════════════════════════════════════════
+// CLAUDE CHAT TAB
+// ═══════════════════════════════════════════════════════
+let claudeChatHistory = [];
+let claudeChatAttachments = []; // [{name, b64, mimeType}]
+
+function addChatFiles(fileList) {
+  Array.from(fileList).forEach(async file => {
+    const b64 = await toBase64(file);
+    const mime = file.type || 'application/pdf';
+    claudeChatAttachments.push({ name: file.name, b64, mimeType: mime });
+
+    const list = document.getElementById('claudeChatFileList');
+    const tag = document.createElement('div');
+    tag.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-size:11px;color:var(--text);display:flex;gap:6px;align-items:center';
+    tag.innerHTML = '📄 ' + file.name + ' <span onclick="removeChatFile(\''+file.name+'\')" style="cursor:pointer;color:var(--muted2);font-size:14px">×</span>';
+    tag.id = 'chatfile_' + file.name.replace(/[^a-z0-9]/gi,'_');
+    list.appendChild(tag);
+    document.getElementById('claudeChatFiles').style.display = 'block';
+  });
+}
+
+function removeChatFile(name) {
+  claudeChatAttachments = claudeChatAttachments.filter(a => a.name !== name);
+  const el = document.getElementById('chatfile_' + name.replace(/[^a-z0-9]/gi,'_'));
+  if (el) el.remove();
+  if (!claudeChatAttachments.length) document.getElementById('claudeChatFiles').style.display = 'none';
+}
+
+function appendChatMsg(role, text, isLoading) {
+  const wrap = document.getElementById('claudeChatMessages');
+  const div = document.createElement('div');
+  const isUser = role === 'user';
+  div.style.cssText = 'display:flex;flex-direction:column;align-items:'+(isUser?'flex-end':'flex-start');
+  div.innerHTML = '<div style="max-width:85%;background:'+(isUser?'rgba(232,255,71,0.12)':'var(--surface)')+';border:1px solid '+(isUser?'rgba(232,255,71,0.2)':'var(--border)')+';border-radius:14px;padding:12px 16px;font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">'+(isLoading?'<span class="thinking-dots"><span></span><span></span><span></span></span>':text)+'</div>';
+  if (isLoading) div.id = 'chat_loading_msg';
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return div;
+}
+
+async function sendClaudeChat() {
+  const input = document.getElementById('claudeChatInput');
+  const text = input.value.trim();
+  if (!text && !claudeChatAttachments.length) return;
+  if (!localStorage.getItem('sa_claude_key')) { appendChatMsg('assistant', '⚠ Renseigne ta clé API Claude dans l\'onglet Dépôt.'); return; }
+
+  input.value = '';
+  appendChatMsg('user', text + (claudeChatAttachments.length ? '\n📎 ' + claudeChatAttachments.map(a=>a.name).join(', ') : ''));
+
+  // Build message content
+  const userContent = [];
+  for (const att of claudeChatAttachments) {
+    userContent.push({ type: 'document', source: { type: 'base64', media_type: att.mimeType, data: att.b64 } });
+  }
+  if (text) userContent.push({ type: 'text', text });
+  else userContent.push({ type: 'text', text: 'Analyse ces documents et dis-moi ce que tu trouves. Propose les actions comptables adaptées (Drive, Excel).' });
+
+  claudeChatHistory.push({ role: 'user', content: userContent });
+  claudeChatAttachments = [];
+  document.getElementById('claudeChatFiles').style.display = 'none';
+  document.getElementById('claudeChatFileList').innerHTML = '';
+
+  const loadingDiv = appendChatMsg('assistant', '', true);
+
+  const SYSTEM = `Tu es l'assistant comptable de STUDIO AWAKENING (SAS, Lyon, TVA FR86927848804).
+Tu as accès aux outils Drive et Excel de l'application via les fonctions JS disponibles.
+Quand l'utilisateur te donne des documents, tu les analyses et tu proposes des actions concrètes.
+Pour chaque document trouvé, indique: fournisseur, date, montant TTC, HT, TVA, où le ranger dans Drive, quelle ligne Excel.
+Si l'utilisateur dit "vas-y", "ok", "confirme" ou similaire après ta proposition, exécute les actions.
+Contexte fiscal: exercice Avr 2026 - Mars 2027. TVA standard 20%, restauration 10%, alimentaire 5.5%.
+Réponds toujours en français, de façon concise et structurée.`;
+
+  try {
+    const reply = await callClaude(claudeChatHistory, SYSTEM, 4000);
+    loadingDiv.remove();
+    appendChatMsg('assistant', reply);
+    claudeChatHistory.push({ role: 'assistant', content: reply });
+
+    // Check if user confirmed execution
+    const lastUserMsg = (typeof userContent[userContent.length-1].text === 'string' ? userContent[userContent.length-1].text : '').toLowerCase();
+    const confirmed = ['vas-y','ok','confirme','oui','go','execute','fais-le','fais le','range','saisis'].some(w => lastUserMsg.includes(w));
+    if (confirmed && window._lastChatDocs?.length) {
+      appendChatMsg('assistant', '⏳ Exécution en cours…');
+      for (const doc of window._lastChatDocs) {
+        try {
+          if (doc._b64) {
+            const bc = atob(doc._b64); const ba = new Uint8Array(bc.length);
+            for (let i=0;i<bc.length;i++) ba[i]=bc.charCodeAt(i);
+            const f = new File([ba], doc._filename||'document.pdf', {type:doc._mimeType||'application/pdf'});
+            const type = doc.type_zone||'prestataires';
+            const prov = type==='intermittence'?(doc.sous_dossier_drive||'RC2B'):(doc.fournisseur||'');
+            const mk = getMonthKeyFromDate(doc.date)||selectedMonth.key;
+            await uploadToDriveIntelligent(f, type, mk, prov);
+            await writeToExcel(doc, type, mk);
+          }
+        } catch(e) { appendChatMsg('assistant', '⚠ Erreur: ' + e.message); }
+      }
+      appendChatMsg('assistant', '✅ Documents rangés dans Drive et saisis dans Excel !');
+      window._lastChatDocs = [];
+    }
+
+    // Try to extract structured doc data from reply for future confirmation
+    try {
+      const jsonMatch = reply.match(/```json([\s\S]*?)```/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[1]);
+        if (parsed.documents) window._lastChatDocs = parsed.documents;
+      }
+    } catch(e) {}
+
+  } catch(err) {
+    loadingDiv.remove();
+    appendChatMsg('assistant', '❌ Erreur: ' + err.message);
+  }
+}
+
+function clearClaudeChat() {
+  claudeChatHistory = [];
+  claudeChatAttachments = [];
+  document.getElementById('claudeChatMessages').innerHTML = '';
+  document.getElementById('claudeChatFileList').innerHTML = '';
+  document.getElementById('claudeChatFiles').style.display = 'none';
+  document.getElementById('claudeChatInput').value = '';
+}
 </script>
 </body>
 </html>
