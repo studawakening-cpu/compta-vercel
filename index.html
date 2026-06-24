@@ -1871,6 +1871,11 @@ async function executeChatDocs(actionId) {
   const docs = window._chatActions && window._chatActions[actionId];
   if (!docs || !docs.length) { appendChatMsg('assistant', '⚠ Données introuvables, réessaie.'); return; }
 
+  if (!googleToken) {
+    appendChatMsg('assistant', '⚠ Tu n\'es pas connecté à Google. Clique sur "Connecter Google" en haut de page d\'abord.');
+    return;
+  }
+
   const btn = document.getElementById('chatbtn_' + actionId);
   if (btn) { btn.disabled = true; btn.textContent = '⏳ En cours…'; }
 
@@ -1890,21 +1895,28 @@ async function executeChatDocs(actionId) {
   }
 
   let done = 0;
+  let errors = 0;
   for (const doc of docs) {
     try {
       const type = doc.type_zone || 'tickets';
       const mk = monthKeyFromDate(doc.date) || MONTHS[2].key;
+      if (!MONTH_COL[mk]) throw new Error('Mois non reconnu: ' + mk);
       await writeToExcel(doc, type, mk);
-      appendChatMsg('assistant', '✅ ' + (doc.libelle || doc.fournisseur) + ' — ' + doc.montant_ht + '€ HT → col ' + (MONTH_COL[mk] || '?'));
+      appendChatMsg('assistant', '✅ ' + (doc.libelle || doc.fournisseur) + ' — ' + doc.montant_ht + '€ HT → col ' + MONTH_COL[mk]);
       done++;
     } catch(e) {
-      appendChatMsg('assistant', '⚠ Erreur "' + (doc.fournisseur||'doc') + '": ' + e.message);
+      appendChatMsg('assistant', '❌ Erreur "' + (doc.fournisseur||'doc') + '": ' + e.message);
+      errors++;
     }
   }
 
   const area = document.getElementById('chataction_' + actionId);
-  if (area) area.innerHTML = '<span style="color:var(--success)">✅ ' + done + ' ligne(s) saisie(s) dans Excel !</span>';
-  delete window._chatActions[actionId];
+  if (errors === 0) {
+    if (area) area.innerHTML = '<span style="color:var(--success)">✅ ' + done + ' ligne(s) saisie(s) dans Excel !</span>';
+  } else {
+    if (area) area.innerHTML = '<span style="color:var(--warning)">⚠ ' + done + ' réussi(s), ' + errors + ' erreur(s) — voir détails ci-dessus</span>';
+  }
+  if (done > 0) delete window._chatActions[actionId];
 }
 
 async function sendClaudeChat() {
