@@ -1848,94 +1848,75 @@ async function sendClaudeChat() {
 - SIREN: 927 848 804 | SIRET: 927 848 804 00013 | TVA: FR86927848804
 - NAF: 5911B (production de films)
 - Adresse: 13 rue Claudius Linossier, 69004 Lyon
-- Email: stud.awakening@gmail.com
-- Dirigeant: OFF ROAD
-- Créée le 19 avril 2024
-- Activité: production audiovisuelle, événements live, contenus créatifs
-
-== COMPTABILITÉ ==
 - Exercice fiscal: Avril 2026 → Mars 2027
-- Fichier Excel: TABLEAU DE BORD 2026-2027.xlsx (colonnes D=Avr26 à O=Mar27)
-- Onglets Excel: DEPENSES (fournisseurs), DEPENSESCB (tickets CB), RECETTES (clients)
-- Drive: dossier racine avec 12 sous-dossiers mensuels (1-AVRIL 04-26 à 12-MARS 03-27)
-- Chaque mois contient: CARTE BLEUE ENTREPRISE, FACTURES PRESTATAIRES, FACTURES CLIENTS, NOTE DE FRAIS, INTERMITTENCE (RC2B + STUD), LOYER BUREAU, RELEVE DE BANQUE, COMPTA
-- Banque: Société Générale (Jazz Pro) — frais bancaires automatiques non justifiables
-- TVA: standard 20%, restauration 10%, alimentaire 5.5%, médical/exonéré 0%
-- Garcin a le statut intermittent du spectacle — les heures SAS ne comptent pas pour ce statut
+- Excel: DEPENSES (fournisseurs), DEPENSESCB (tickets CB), RECETTES — colonnes D=Avr26 à O=Mar27
+- Drive: 12 dossiers mensuels, chacun avec CARTE BLEUE ENTREPRISE, FACTURES PRESTATAIRES, FACTURES CLIENTS, NOTE DE FRAIS, INTERMITTENCE, LOYER BUREAU, RELEVE DE BANQUE
+- TVA: 20% standard, 10% restauration, 5.5% alimentaire, 0% médical
 
 == TON RÔLE ==
-Tu es un coach comptable intelligent et proactif. Quand Garcin t'envoie un document:
-1. Tu l'analyses immédiatement et extrais toutes les infos utiles
-2. Tu poses des questions SI tu as besoin d'informations manquantes (ex: "Ce ticket est-il une dépense pro ou perso?", "Tu veux que je le range sous quel mois?", "Tu as le relevé bancaire du mois pour croiser?")
-3. Tu proposes une action claire et structurée: où ranger dans Drive, quelle ligne Excel, quel montant
-4. Tu attends confirmation ("ok", "vas-y", "confirme") avant d'exécuter
-5. Si quelque chose est ambigu, tu demandes plutôt que de supposer
+Tu as ACCÈS DIRECT au Drive et à l'Excel de Garcin via les fonctions de cette application.
+Tu PEUX et DOIS exécuter les actions toi-même — ranger dans Drive, écrire dans Excel.
+Workflow:
+1. Analyser le document
+2. Poser UNE question si info manquante (pro/perso? quel mois?)
+3. Proposer l'action avec le récapitulatif
+4. Quand Garcin dit "ok", "vas-y", "oui", "confirme" → EXECUTER immédiatement via le JSON ci-dessous
 
-== FORMAT DE RÉPONSE ==
-Sois concis et structuré. Pour chaque document:
-📄 [Nom fournisseur] — [Date]
-   TTC: Xé | HT: Xé | TVA: Xé (X%)
-   📁 Drive: [dossier exact]
-   📊 Excel: [onglet] — [libellé] — col [lettre]
-   ❓ [Question si info manquante]
+IMPORTANT: quand tu es prêt à exécuter, inclus OBLIGATOIREMENT ce bloc JSON exact à la fin de ta réponse (remplace les valeurs):
+ACTION_JSON:{"documents":[{"fournisseur":"NOM","date":"YYYY-MM-DD","montant_ttc":0.0,"montant_ht":0.0,"tva":0.0,"type_zone":"tickets","libelle":"LIBELLE EXCEL","sous_dossier_drive":"RC2B"}]}
 
-Pour confirmer l'exécution, inclus un bloc JSON discret:
-\`\`\`json
-{"documents":[{"fournisseur":"","date":"YYYY-MM-DD","montant_ttc":0,"montant_ht":0,"tva":0,"type_zone":"tickets|prestataires|clients|nf|intermittence","libelle":"","categorie_excel":"","sous_dossier_drive":""}]}
-\`\`\`
+type_zone: tickets=DEPENSESCB, prestataires=DEPENSES, clients=RECETTES, nf=NOTE DE FRAIS, intermittence=INTERMITTENCE
 
-Réponds toujours en français. Tu peux tutoyer Garcin.
-
-== COMPTABILITÉ FRANÇAISE ==
-- PCG: comptes 6xx=charges, 7xx=produits, 401=fournisseurs, 411=clients
-- TVA: 20% standard, 10% restauration/travaux, 5.5% alimentaire, 0% médical/exonéré
-- IS: taux réduit 15% jusqu'à 42500€ bénéfice (PME), 25% au-delà
-- Exercice fiscal SA: Avr 2026 → Mars 2027
-- Facturation électronique: réception obligatoire 1er sept. 2026
-- Mentions obligatoires facture: date, numéro séquentiel, SIREN émetteur+client, désignation, quantité, prix unitaire, taux TVA, total HT/TVA/TTC, délai paiement, pénalités retard
-- FEC requis si contrôle fiscal
-- Clôture annuelle: amortissements, provisions, CCA, FNP, puis liasse 2033/2065
-
-Quand tu poses une question à Garcin, sois direct et précis. Demande uniquement ce qui est strictement nécessaire.`;
+Réponds toujours en français. Sois concis. Tu peux tutoyer Garcin.`;
 
 
   try {
     const reply = await callClaude(claudeChatHistory, SYSTEM, 4000);
     loadingDiv.remove();
-    appendChatMsg('assistant', reply);
-    claudeChatHistory.push({ role: 'assistant', content: reply });
 
-    // Check if user confirmed execution
-    const lastUserMsg = (typeof userContent[userContent.length-1].text === 'string' ? userContent[userContent.length-1].text : '').toLowerCase();
-    const confirmed = ['vas-y','ok','confirme','oui','go','execute','fais-le','fais le','range','saisis'].some(w => lastUserMsg.includes(w));
-    if (confirmed && window._lastChatDocs?.length) {
-      appendChatMsg('assistant', '⏳ Exécution en cours…');
-      for (const doc of window._lastChatDocs) {
-        try {
-          if (doc._b64) {
-            const bc = atob(doc._b64); const ba = new Uint8Array(bc.length);
-            for (let i=0;i<bc.length;i++) ba[i]=bc.charCodeAt(i);
-            const f = new File([ba], doc._filename||'document.pdf', {type:doc._mimeType||'application/pdf'});
-            const type = doc.type_zone||'prestataires';
-            const prov = type==='intermittence'?(doc.sous_dossier_drive||'RC2B'):(doc.fournisseur||'');
-            const mk = getMonthKeyFromDate(doc.date)||selectedMonth.key;
-            await uploadToDriveIntelligent(f, type, mk, prov);
-            await writeToExcel(doc, type, mk);
-          }
-        } catch(e) { appendChatMsg('assistant', '⚠ Erreur: ' + e.message); }
-      }
-      appendChatMsg('assistant', '✅ Documents rangés dans Drive et saisis dans Excel !');
-      window._lastChatDocs = [];
+    // Extract and hide ACTION_JSON from display
+    const actionMatch = reply.match(/ACTION_JSON:(\{[\s\S]*?\})\s*$/m);
+    let docsToStore = null;
+    let displayReply = reply;
+    if (actionMatch) {
+      try {
+        const parsed = JSON.parse(actionMatch[1]);
+        if (parsed.documents) docsToStore = parsed.documents;
+      } catch(e) {}
+      displayReply = reply.replace(/ACTION_JSON:\{[\s\S]*?\}\s*$/m, '').trim();
     }
 
-    // Try to extract structured doc data from reply for future confirmation
-    try {
-      const jsonMatch = reply.match(/```json([\s\S]*?)```/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1]);
-        if (parsed.documents) window._lastChatDocs = parsed.documents;
+    appendChatMsg('assistant', displayReply);
+    claudeChatHistory.push({ role: 'assistant', content: reply });
+
+    // Store docs if Claude proposed actions
+    if (docsToStore) window._lastChatDocs = docsToStore;
+
+    // Check if user's message is a confirmation — execute stored docs
+    const lastUserText = Array.isArray(userContent)
+      ? (userContent.find(c => c.type === 'text')?.text || '')
+      : (userContent || '');
+    const isConfirm = ['vas-y','ok','confirme','oui','go','fais','range','saisis','execute'].some(w => lastUserText.toLowerCase().includes(w));
+
+    if (isConfirm && window._lastChatDocs?.length) {
+      const execMsg = appendChatMsg('assistant', '⏳ Exécution en cours…');
+      let done = 0;
+      for (const doc of window._lastChatDocs) {
+        try {
+          const type = doc.type_zone || 'tickets';
+          const mk = getMonthKeyFromDate(doc.date) || selectedMonthBanque?.key || MONTHS[1].key;
+          const prov = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
+          await writeToExcel(doc, type, mk);
+          appendChatMsg('assistant', `✅ Excel: "${doc.libelle || doc.fournisseur}" saisi — ${doc.montant_ht}€ HT`);
+          done++;
+        } catch(e) {
+          appendChatMsg('assistant', `⚠ Erreur "${doc.fournisseur}": ${e.message}`);
+        }
       }
-    } catch(e) {}
+      execMsg.remove();
+      appendChatMsg('assistant', `✅ ${done} ligne(s) saisie(s) dans Excel !`);
+      window._lastChatDocs = [];
+    }
 
   } catch(err) {
     loadingDiv.remove();
