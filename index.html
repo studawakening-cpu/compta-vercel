@@ -151,6 +151,20 @@
 <!-- TAB DEPOT -->
 <div class="tab-panel active" id="tab-depot">
 <main>
+  <!-- Relevé bancaire partagé -->
+  <div style="background:var(--surface);border:1px solid rgba(74,222,128,0.2);border-radius:16px;overflow:hidden;margin-bottom:20px">
+    <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="padding:12px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--success)">🏦 Relevé bancaire du mois <span id="depot_banque_status" style="font-weight:400;color:var(--muted)">— non chargé</span></span>
+      <span style="color:var(--muted);font-size:12px">▾</span>
+    </div>
+    <div style="display:none;padding:0 20px 16px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Charge ton relevé une fois pour que je croise chaque document analysé avec les transactions du mois.</div>
+      <div class="nf-upload-zone" style="padding:16px" onclick="document.getElementById('depot_banque_input').click()" ondragover="event.preventDefault()" ondrop="handleSharedBanqueDrop(event,'depot')">
+        <div style="font-size:11px;color:var(--muted);text-align:center">📄 Déposer le PDF du relevé de banque</div>
+      </div>
+      <input type="file" id="depot_banque_input" accept=".pdf" style="display:none" onchange="loadSharedBanque(this.files,'depot')">
+    </div>
+  </div>
   <div class="api-section">
     <div class="api-label">Clé API Claude (Anthropic)</div>
     <div class="api-input-row">
@@ -286,6 +300,20 @@
 <!-- TAB GMAIL -->
 <div class="tab-panel" id="tab-gmail">
 <main>
+  <!-- Relevé bancaire partagé -->
+  <div style="background:var(--surface);border:1px solid rgba(74,222,128,0.2);border-radius:16px;overflow:hidden;margin-bottom:20px">
+    <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="padding:12px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--success)">🏦 Relevé bancaire du mois <span id="gmail_banque_status" style="font-weight:400;color:var(--muted)">— non chargé</span></span>
+      <span style="color:var(--muted);font-size:12px">▾</span>
+    </div>
+    <div style="display:none;padding:0 20px 16px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Charge ton relevé une fois pour que je croise chaque document analysé avec les transactions du mois.</div>
+      <div class="nf-upload-zone" style="padding:16px" onclick="document.getElementById('gmail_banque_input').click()" ondragover="event.preventDefault()" ondrop="handleSharedBanqueDrop(event,'gmail')">
+        <div style="font-size:11px;color:var(--muted);text-align:center">📄 Déposer le PDF du relevé de banque</div>
+      </div>
+      <input type="file" id="gmail_banque_input" accept=".pdf" style="display:none" onchange="loadSharedBanque(this.files,'gmail')">
+    </div>
+  </div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:20px">
     <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:12px">Scanner Gmail par mois</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Je cherche dans tes mails du mois sélectionné les factures, relevés, attestations et documents comptables, puis je les range automatiquement dans le Drive et l'Excel.</div>
@@ -327,6 +355,20 @@
 <!-- TAB AUDIT -->
 <div class="tab-panel" id="tab-audit">
 <main>
+  <!-- Relevé bancaire partagé -->
+  <div style="background:var(--surface);border:1px solid rgba(74,222,128,0.2);border-radius:16px;overflow:hidden;margin-bottom:20px">
+    <div onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'" style="padding:12px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--success)">🏦 Relevé bancaire du mois <span id="audit_banque_status" style="font-weight:400;color:var(--muted)">— non chargé</span></span>
+      <span style="color:var(--muted);font-size:12px">▾</span>
+    </div>
+    <div style="display:none;padding:0 20px 16px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Charge ton relevé une fois pour que je croise chaque document analysé avec les transactions du mois.</div>
+      <div class="nf-upload-zone" style="padding:16px" onclick="document.getElementById('audit_banque_input').click()" ondragover="event.preventDefault()" ondrop="handleSharedBanqueDrop(event,'audit')">
+        <div style="font-size:11px;color:var(--muted);text-align:center">📄 Déposer le PDF du relevé de banque</div>
+      </div>
+      <input type="file" id="audit_banque_input" accept=".pdf" style="display:none" onchange="loadSharedBanque(this.files,'audit')">
+    </div>
+  </div>
   <div style="background:var(--surface);border:1px solid rgba(255,107,53,0.3);border-radius:16px;padding:24px;margin-bottom:20px">
     <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.06em;text-transform:uppercase;color:var(--accent2);margin-bottom:12px">🔧 Correction unique — En-têtes de colonnes</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Renomme les en-têtes Apr-25...Mar-26 en Apr-26...Mar-27 dans les onglets DEPENSES, DEPENSESCB et RECETTES. À faire une seule fois.</div>
@@ -436,20 +478,82 @@
 const files={tickets:[],prestataires:[],clients:[],nf:[],intermittence:[]};
 let nfTickets=[];
 let apiKey=localStorage.getItem('sa_claude_key')||'';
-if(apiKey)document.getElementById('apiKey').value=apiKey;
-document.getElementById('nf-date').value=new Date().toISOString().split('T')[0];
-document.getElementById('nf-numero').value='NF-'+new Date().getFullYear()+'-'+String(Math.floor(Math.random()*900)+100);
+// Pre-fill after DOM ready
+document.addEventListener('DOMContentLoaded',function(){
+  const keyInput=document.getElementById('apiKey');
+  if(keyInput&&apiKey) keyInput.value=apiKey;
+  document.getElementById('nf-date').value=new Date().toISOString().split('T')[0];
+  document.getElementById('nf-numero').value='NF-'+new Date().getFullYear()+'-'+String(Math.floor(Math.random()*900)+100);
+});
 
 function switchTab(tab,btn){document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.getElementById('tab-'+tab).classList.add('active');btn.classList.add('active');}
 
 const MONTHS=[{label:'Avr 26',key:'1-AVRIL 04-26'},{label:'Mai 26',key:'2-MAI 05-26'},{label:'Juin 26',key:'3-JUIN 06-26'},{label:'Juil 26',key:'4-JUILLET 07-26'},{label:'Août 26',key:'5-AOUT 08-26'},{label:'Sept 26',key:'6-SEPTEMBRE 09-26'},{label:'Oct 26',key:'7-OCTOBRE 10-26'},{label:'Nov 26',key:'8-NOVEMBRE 11-26'},{label:'Déc 26',key:'9-DECEMBRE 12-26'},{label:'Jan 27',key:'10-JANVIER 01-27'},{label:'Fév 27',key:'11-FEVRIER 02-27'},{label:'Mars 27',key:'12-MARS 03-27'}];
 let selectedMonth=MONTHS[1],selectedMonthNF=MONTHS[1];
 
+// Shared bank statement context — accessible from all tabs
+let sharedBanqueTransactions = null;
+let sharedBanqueMonthKey = null;
+
 function buildMonthPills(id,current,onSelect){const c=document.getElementById(id);MONTHS.forEach(m=>{const btn=document.createElement('button');btn.className='month-pill'+(m.key===current.key?' active':'');btn.textContent=m.label;btn.onclick=()=>{onSelect(m);c.querySelectorAll('.month-pill').forEach(b=>b.classList.remove('active'));btn.classList.add('active');};c.appendChild(btn);});}
 buildMonthPills('monthPills',selectedMonth,m=>selectedMonth=m);
 buildMonthPills('monthPillsNF',selectedMonthNF,m=>selectedMonthNF=m);
 
 function saveKey(){apiKey=document.getElementById('apiKey').value.trim();localStorage.setItem('sa_claude_key',apiKey);log('Clé API Claude enregistrée ✓','success');}
+
+function handleSharedBanqueDrop(e, tabId) {
+  e.preventDefault();
+  loadSharedBanque(e.dataTransfer.files, tabId);
+}
+
+async function loadSharedBanque(fileList, tabId) {
+  const file = fileList[0];
+  if (!file || !localStorage.getItem('sa_claude_key')) return;
+
+  const statusEl = document.getElementById(tabId + '_banque_status');
+  if (statusEl) statusEl.textContent = '— chargement…';
+
+  try {
+    const b64 = await toBase64(file);
+    const raw = await callClaude([{
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Extrait TOUTES les transactions de debit de ce releve bancaire. JSON uniquement sans markdown: {transactions:[{date (YYYY-MM-DD), libelle (max 40 chars sans apostrophes), montant (nombre negatif), type:"debit"}]}' },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }
+      ]
+    }], 'JSON valide uniquement sans markdown ni commentaire. Ne jamais mettre apostrophes ou guillemets dans les libelles.', 16000);
+
+    const clean = raw.replace(/```json|```/g, '').trim();
+    let data;
+    try { data = JSON.parse(clean); }
+    catch(e) {
+      // Regex fallback
+      const txRegex = /\{\s*"date"\s*:\s*"([^"]*)"\s*,\s*"libelle"\s*:\s*"([^"]*)"\s*,\s*"montant"\s*:\s*(-?[\d.]+)/g;
+      const txList = [];
+      let m;
+      while ((m = txRegex.exec(clean)) !== null) {
+        txList.push({ date: m[1], libelle: m[2], montant: parseFloat(m[3]), type: 'debit' });
+      }
+      data = { transactions: txList };
+    }
+
+    sharedBanqueTransactions = (data.transactions || []).filter(t => t.montant < 0);
+    sharedBanqueMonthKey = null; // will be set by active tab's month
+
+    if (statusEl) statusEl.textContent = `— ✅ ${sharedBanqueTransactions.length} transactions chargées`;
+  } catch(err) {
+    if (statusEl) statusEl.textContent = '— ❌ Erreur de chargement';
+  }
+}
+
+// Check if a document matches a bank transaction (used during analysis in any tab)
+function checkAgainstBanque(montantTTC, libelle) {
+  if (!sharedBanqueTransactions || !sharedBanqueTransactions.length) return null;
+  const amount = Math.abs(parseFloat(montantTTC) || 0);
+  if (!amount) return null;
+  const matched = sharedBanqueTransactions.find(t => Math.abs(Math.abs(t.montant) - amount) < 1.0);
+  return matched || false; // null = no banque loaded, false = no match, object = match found
+}
 
 function triggerUpload(type){document.getElementById('file-'+type).click();}
 function addFiles(type,fileList){
@@ -932,6 +1036,13 @@ async function analyzeAll(){
         log(`📊 Saisie dans l'Excel…`,'pending');
         for(const doc of data.documents){
           try{
+            // Cross-check against bank statement if loaded
+            const banqueMatch = checkAgainstBanque(doc.montant_ttc, doc.libelle);
+            if(banqueMatch === false) {
+              log(`⚠ "${doc.libelle||doc.fournisseur}" (${doc.montant_ttc}€) — aucune transaction correspondante dans le relevé bancaire !`, 'error');
+            } else if(banqueMatch) {
+              log(`✓ Correspond à la transaction du ${banqueMatch.date}: "${banqueMatch.libelle}"`, 'info');
+            }
             await writeToExcel(doc, type, selectedMonth.key);
           }catch(err){log(`⚠ Excel: ${err.message}`,'error');}
         }
@@ -1583,19 +1694,19 @@ async function processBanqueFile(fileList) {
       if (!data) {
         try {
           const txRegex = /\{\s*"date"\s*:\s*"([^"]*)"\s*,\s*"libelle"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"montant"\s*:\s*(-?[\d.]+)\s*,\s*"type"\s*:\s*"([^"]*)"\s*\}/g;
-          const transactions = [];
+          const txList = [];
           let m;
           while ((m = txRegex.exec(clean)) !== null) {
-            transactions.push({
+            txList.push({
               date: m[1],
               libelle: m[2].replace(/\\"/g, '"'),
               montant: parseFloat(m[3]),
               type: m[4]
             });
           }
-          if (transactions.length) {
-            data = { transactions };
-            logBanque(`✓ Récupération par extraction directe — ${transactions.length} transaction(s) trouvée(s)`, 'success');
+          if (txList.length) {
+            data = { transactions: txList };
+            logBanque(`✓ Récupération par extraction directe — ${txList.length} transaction(s) trouvée(s)`, 'success');
           }
         } catch(e2) {}
       }
