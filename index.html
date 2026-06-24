@@ -1785,9 +1785,7 @@ let claudeChatAttachments = []; // [{name, b64, mimeType}]
 function addChatFiles(fileList) {
   Array.from(fileList).forEach(async file => {
     const b64 = await toBase64(file);
-    const mime = file.type || 'application/pdf';
-    claudeChatAttachments.push({ name: file.name, b64, mimeType: mime });
-
+    claudeChatAttachments.push({ name: file.name, b64, mimeType: file.type || 'application/pdf' });
     const list = document.getElementById('claudeChatFileList');
     const tag = document.createElement('div');
     tag.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-size:11px;color:var(--text);display:flex;gap:6px;align-items:center';
@@ -1805,34 +1803,63 @@ function removeChatFile(name) {
   if (!claudeChatAttachments.length) document.getElementById('claudeChatFiles').style.display = 'none';
 }
 
-function appendChatMsg(role, text, isLoading) {
+function appendChatMsg(role, html, isLoading) {
   const wrap = document.getElementById('claudeChatMessages');
-  const div = document.createElement('div');
+  const outer = document.createElement('div');
   const isUser = role === 'user';
-  div.style.cssText = 'display:flex;flex-direction:column;align-items:'+(isUser?'flex-end':'flex-start');
-  div.innerHTML = '<div style="max-width:85%;background:'+(isUser?'rgba(232,255,71,0.12)':'var(--surface)')+';border:1px solid '+(isUser?'rgba(232,255,71,0.2)':'var(--border)')+';border-radius:14px;padding:12px 16px;font-size:13px;color:var(--text);line-height:1.6;white-space:pre-wrap">'+(isLoading?'<span class="thinking-dots"><span></span><span></span><span></span></span>':text)+'</div>';
-  if (isLoading) div.id = 'chat_loading_msg';
-  wrap.appendChild(div);
+  outer.style.cssText = 'display:flex;flex-direction:column;align-items:' + (isUser ? 'flex-end' : 'flex-start') + ';margin-bottom:4px';
+  const bubble = document.createElement('div');
+  bubble.style.cssText = 'max-width:90%;background:' + (isUser ? 'rgba(232,255,71,0.1)' : 'var(--surface)') + ';border:1px solid ' + (isUser ? 'rgba(232,255,71,0.2)' : 'var(--border)') + ';border-radius:14px;padding:12px 16px;font-size:13px;color:var(--text);line-height:1.7';
+  if (isLoading) {
+    bubble.innerHTML = '<span class="thinking-dots"><span></span><span></span><span></span></span>';
+    outer.id = 'chat_loading_msg';
+  } else {
+    bubble.innerHTML = html.replace(/\n/g, '<br>');
+  }
+  outer.appendChild(bubble);
+  wrap.appendChild(outer);
   wrap.scrollTop = wrap.scrollHeight;
-  return div;
+  return outer;
+}
+
+async function executeChatDocs(docsJson) {
+  const docs = JSON.parse(docsJson);
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳ En cours…';
+  let done = 0;
+  for (const doc of docs) {
+    try {
+      const type = doc.type_zone || 'tickets';
+      const mk = getMonthKeyFromDate(doc.date) || MONTHS[2].key; // default Juin 26
+      await writeToExcel(doc, type, mk);
+      appendChatMsg('assistant', '✅ Excel: <b>' + (doc.libelle || doc.fournisseur) + '</b> — ' + doc.montant_ht + '€ HT col ' + (MONTH_COL[mk] || '?'));
+      done++;
+    } catch(e) {
+      appendChatMsg('assistant', '⚠ Erreur "' + (doc.fournisseur||'') + '": ' + e.message);
+    }
+  }
+  btn.parentElement.innerHTML = '✅ ' + done + ' ligne(s) saisie(s) dans Excel !';
+  btn.parentElement.style.color = 'var(--success)';
 }
 
 async function sendClaudeChat() {
   const input = document.getElementById('claudeChatInput');
   const text = input.value.trim();
   if (!text && !claudeChatAttachments.length) return;
-  if (!localStorage.getItem('sa_claude_key')) { appendChatMsg('assistant', '⚠ Renseigne ta clé API Claude dans l\'onglet Dépôt.'); return; }
+  if (!localStorage.getItem('sa_claude_key')) {
+    appendChatMsg('assistant', '⚠ Renseigne ta clé API Claude dans l\'onglet Dépôt.');
+    return;
+  }
 
   input.value = '';
-  appendChatMsg('user', text + (claudeChatAttachments.length ? '\n📎 ' + claudeChatAttachments.map(a=>a.name).join(', ') : ''));
+  appendChatMsg('user', (text || '(document joint)') + (claudeChatAttachments.length ? '<br><span style="font-size:11px;color:var(--muted)">📎 ' + claudeChatAttachments.map(a => a.name).join(', ') + '</span>' : ''));
 
-  // Build message content
   const userContent = [];
   for (const att of claudeChatAttachments) {
     userContent.push({ type: 'document', source: { type: 'base64', media_type: att.mimeType, data: att.b64 } });
   }
-  if (text) userContent.push({ type: 'text', text });
-  else userContent.push({ type: 'text', text: 'Analyse ces documents et dis-moi ce que tu trouves. Propose les actions comptables adaptées (Drive, Excel).' });
+  userContent.push({ type: 'text', text: text || 'Analyse ces documents pour ma comptabilité Studio Awakening.' });
 
   claudeChatHistory.push({ role: 'user', content: userContent });
   claudeChatAttachments = [];
@@ -1841,81 +1868,55 @@ async function sendClaudeChat() {
 
   const loadingDiv = appendChatMsg('assistant', '', true);
 
-  const SYSTEM = `Tu es l'assistant comptable personnel de STUDIO AWAKENING, géré par Garcin.
+  const SYSTEM = `Tu es l'assistant comptable de STUDIO AWAKENING SAS (SIREN 927848804, Lyon, NAF 5911B).
+Exercice fiscal: Avril 2026 → Mars 2027.
+Excel: DEPENSESCB=tickets CB, DEPENSES=fournisseurs, RECETTES=clients. Colonnes: D=Avr26, E=Mai26, F=Juin26, G=Juil26, H=Aout26, I=Sep26, J=Oct26, K=Nov26, L=Dec26, M=Jan27, N=Fev27, O=Mar27.
+TVA: 20% standard, 10% restauration/travaux, 5.5% alimentaire, 0% médical/exonéré.
 
-== CONTEXTE SOCIÉTÉ ==
-- Raison sociale: STUDIO AWAKENING SAS
-- SIREN: 927 848 804 | SIRET: 927 848 804 00013 | TVA: FR86927848804
-- NAF: 5911B (production de films)
-- Adresse: 13 rue Claudius Linossier, 69004 Lyon
-- Exercice fiscal: Avril 2026 → Mars 2027
-- Excel: DEPENSES (fournisseurs), DEPENSESCB (tickets CB), RECETTES — colonnes D=Avr26 à O=Mar27
-- Drive: 12 dossiers mensuels, chacun avec CARTE BLEUE ENTREPRISE, FACTURES PRESTATAIRES, FACTURES CLIENTS, NOTE DE FRAIS, INTERMITTENCE, LOYER BUREAU, RELEVE DE BANQUE
-- TVA: 20% standard, 10% restauration, 5.5% alimentaire, 0% médical
+Quand tu analyses des documents:
+1. Extrais pour chaque ticket/facture: fournisseur, date (YYYY-MM-DD), montant_ttc, montant_ht, tva, libelle court.
+2. Pose UNE question si info manquante (dépense pro/perso? quel mois si ambigu?).
+3. Affiche un récapitulatif clair.
+4. Termine TOUJOURS ta réponse par ce bloc JSON (obligatoire, une seule ligne, valeurs réelles):
+##ACTION##{"documents":[{"fournisseur":"X","date":"YYYY-MM-DD","montant_ttc":0.0,"montant_ht":0.0,"tva":0.0,"type_zone":"tickets","libelle":"X"}]}##END##
 
-== TON RÔLE ==
-Tu as ACCÈS DIRECT au Drive et à l'Excel de Garcin via les fonctions de cette application.
-Tu PEUX et DOIS exécuter les actions toi-même — ranger dans Drive, écrire dans Excel.
-Workflow:
-1. Analyser le document
-2. Poser UNE question si info manquante (pro/perso? quel mois?)
-3. Proposer l'action avec le récapitulatif
-4. Quand Garcin dit "ok", "vas-y", "oui", "confirme" → EXECUTER immédiatement via le JSON ci-dessous
+type_zone: tickets (repas/achats CB) | prestataires (factures fournisseurs) | clients (factures clients) | nf (notes de frais) | intermittence
 
-IMPORTANT: quand tu es prêt à exécuter, inclus OBLIGATOIREMENT ce bloc JSON exact à la fin de ta réponse (remplace les valeurs):
-ACTION_JSON:{"documents":[{"fournisseur":"NOM","date":"YYYY-MM-DD","montant_ttc":0.0,"montant_ht":0.0,"tva":0.0,"type_zone":"tickets","libelle":"LIBELLE EXCEL","sous_dossier_drive":"RC2B"}]}
-
-type_zone: tickets=DEPENSESCB, prestataires=DEPENSES, clients=RECETTES, nf=NOTE DE FRAIS, intermittence=INTERMITTENCE
-
-Réponds toujours en français. Sois concis. Tu peux tutoyer Garcin.`;
-
+Réponds en français. Sois concis et direct.`;
 
   try {
     const reply = await callClaude(claudeChatHistory, SYSTEM, 4000);
     loadingDiv.remove();
 
-    // Extract and hide ACTION_JSON from display
-    const actionMatch = reply.match(/ACTION_JSON:(\{[\s\S]*?\})\s*$/m);
-    let docsToStore = null;
-    let displayReply = reply;
+    // Extract ##ACTION## block
+    const actionMatch = reply.match(/##ACTION##([\s\S]+?)##END##/);
+    let docs = null;
+    let displayText = reply;
+
     if (actionMatch) {
       try {
-        const parsed = JSON.parse(actionMatch[1]);
-        if (parsed.documents) docsToStore = parsed.documents;
-      } catch(e) {}
-      displayReply = reply.replace(/ACTION_JSON:\{[\s\S]*?\}\s*$/m, '').trim();
+        docs = JSON.parse(actionMatch[1]);
+        displayText = reply.replace(/##ACTION##[\s\S]+?##END##/, '').trim();
+      } catch(e) {
+        displayText = reply.replace(/##ACTION##[\s\S]+?##END##/, '').trim();
+      }
     }
 
-    appendChatMsg('assistant', displayReply);
     claudeChatHistory.push({ role: 'assistant', content: reply });
 
-    // Store docs if Claude proposed actions
-    if (docsToStore) window._lastChatDocs = docsToStore;
+    // Display message
+    const msgDiv = appendChatMsg('assistant', displayText);
 
-    // Check if user's message is a confirmation — execute stored docs
-    const lastUserText = Array.isArray(userContent)
-      ? (userContent.find(c => c.type === 'text')?.text || '')
-      : (userContent || '');
-    const isConfirm = ['vas-y','ok','confirme','oui','go','fais','range','saisis','execute'].some(w => lastUserText.toLowerCase().includes(w));
-
-    if (isConfirm && window._lastChatDocs?.length) {
-      const execMsg = appendChatMsg('assistant', '⏳ Exécution en cours…');
-      let done = 0;
-      for (const doc of window._lastChatDocs) {
-        try {
-          const type = doc.type_zone || 'tickets';
-          const mk = getMonthKeyFromDate(doc.date) || selectedMonthBanque?.key || MONTHS[1].key;
-          const prov = type === 'intermittence' ? (doc.sous_dossier_drive || 'RC2B') : (doc.fournisseur || '');
-          await writeToExcel(doc, type, mk);
-          appendChatMsg('assistant', `✅ Excel: "${doc.libelle || doc.fournisseur}" saisi — ${doc.montant_ht}€ HT`);
-          done++;
-        } catch(e) {
-          appendChatMsg('assistant', `⚠ Erreur "${doc.fournisseur}": ${e.message}`);
-        }
-      }
-      execMsg.remove();
-      appendChatMsg('assistant', `✅ ${done} ligne(s) saisie(s) dans Excel !`);
-      window._lastChatDocs = [];
+    // If we got structured data, add an action button
+    if (docs && docs.documents && docs.documents.length) {
+      const docsJson = JSON.stringify(docs.documents).replace(/'/g, "\\'");
+      const bubble = msgDiv.querySelector('div');
+      const actionArea = document.createElement('div');
+      actionArea.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid var(--border)';
+      actionArea.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + docs.documents.length + ' ligne(s) prête(s) à saisir dans Excel :</div>'
+        + docs.documents.map(d => '<div style="font-size:11px;color:var(--text);margin-bottom:3px">• ' + (d.libelle||d.fournisseur) + ' — ' + d.montant_ttc + '€ TTC (' + d.date + ')</div>').join('')
+        + '<button onclick="executeChatDocs(\'' + JSON.stringify(docs.documents).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"') + '\')" style="margin-top:10px;background:var(--accent);color:#000;border:none;border-radius:10px;padding:8px 18px;font-family:\'Syne\',sans-serif;font-weight:700;font-size:12px;cursor:pointer;width:100%">✅ Valider et saisir dans Excel</button>';
+      if (bubble) bubble.appendChild(actionArea);
     }
 
   } catch(err) {
