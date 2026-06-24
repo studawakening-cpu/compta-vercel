@@ -20,3 +20,6 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: err.message });
   }
 };
+
+// Increase Vercel body size limit to 50MB for PDF base64
+module.exports.config = { api: { bodyParser: { sizeLimit: '50mb' } } };
