@@ -838,7 +838,13 @@ async function driveAction(action, params) {
     if (!refreshed) throw new Error('Session Google expirée — reconnecte-toi');
     return driveAction(action, params);
   }
-  return res.json();
+  const data = await res.json();
+  // Check for Google API errors in response body
+  if (data.error) {
+    const msg = data.error.message || data.error.status || JSON.stringify(data.error);
+    throw new Error(`Sheets/Drive API: ${msg}`);
+  }
+  return data;
 }
 
 async function getSubfolderId(monthKey, subfolder) {
