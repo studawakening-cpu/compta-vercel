@@ -470,6 +470,11 @@ let apiKey=localStorage.getItem('sa_claude_key')||'';
 document.addEventListener('DOMContentLoaded',function(){
   const ki=document.getElementById('apiKey');
   if(ki&&apiKey)ki.value=apiKey;
+  // Also restore if field is empty after auth gate
+  setTimeout(function(){
+    const ki2=document.getElementById('apiKey');
+    if(ki2&&!ki2.value&&apiKey)ki2.value=apiKey;
+  },500);
   const nd=document.getElementById('nf-date');
   if(nd) nd.value=new Date().toISOString().split('T')[0];
   const nn=document.getElementById('nf-numero');
